@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+static/dist/
+portfolio.db
+.env
+.DS_Store
+dist/
+build/
+*.spec.bak

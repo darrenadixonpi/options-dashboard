@@ -1,0 +1,510 @@
+"""Smoke tests for parsers and core API endpoints (no live broker/network required for most)."""
+
+from unittest.mock import MagicMock, patch
+
+import os
+
+import numpy as np
+import pandas as pd
+import pytest
+
+
+class TestOptionParsing:
+    def test_parse_occ_symbol(self):
+        from app import _parse_occ_symbol
+
+        occ = _parse_occ_symbol("-test260620p00010000")
+        assert occ is not None
+        assert occ["ticker"] == "TEST"
+        assert occ["optType"] == "Put"
+        assert occ["expiry"] == "2026-06-20"
+        assert occ["strike"] == 10.0
+
+    def test_classify_option_events(self):
+        from app import _classify_option_event
+
+        open_short = _classify_option_event("YOU SOLD OPENING TRANSACTION PUT (X)")
+        assert open_short["event"] == "open"
+        assert open_short["is_short"] is True
+
+        close_btc = _classify_option_event("YOU BOUGHT CLOSING TRANSACTION PUT (X)")
+        assert close_btc["event"] == "close"
+        assert close_btc["close_type"] == "btc"
+
+        expired = _classify_option_event("PUT EXPIRED (X)")
+        assert expired["close_type"] == "expired"
+
+    def test_fifo_closed_option_trades(self):
+        from app import _fifo_closed_option_trades
+
+        sym = "-test260620p00010000"
+        txns = [
+            {"date": "2026-04-01", "action": "YOU SOLD OPENING TRANSACTION PUT", "qty": 2, "price": 1.25},
+            {"date": "2026-05-08", "action": "YOU BOUGHT CLOSING TRANSACTION PUT", "qty": 2, "price": 0.50},
+        ]
+        closed, opens, ledger = _fifo_closed_option_trades(sym, txns)
+        assert len(closed) == 1
+        assert closed[0]["qty"] == 2
+        assert closed[0]["closeType"] == "btc"
+        assert closed[0]["pnl"] == pytest.approx(150.0, rel=1e-3)
+        assert ledger["unmatched_opens"] == 0
+
+    def test_format_roll_rows(self):
+        from app import _format_roll_rows
+
+        trades = [{
+            "isRoll": True,
+            "optType": "Put",
+            "strike": 10,
+            "expiry": "2026-05-16",
+            "pnl": 50.0,
+            "rollNetPnl": 120.0,
+            "rollTo": {"strike": 12, "expiry": "2026-06-20", "openDate": "2026-05-08", "openPrice": 1.1},
+        }]
+        _format_roll_rows(trades)
+        assert trades[0]["strategy"] == "Put Roll"
+        assert trades[0]["closeTypeLabel"] == "Roll"
+        assert trades[0]["rollLabel"] == "$10 → $12"
+        assert trades[0]["pnl"] == pytest.approx(50.0)
+        assert trades[0]["legPnl"] == pytest.approx(50.0)
+        assert trades[0]["rollNetPnl"] == pytest.approx(120.0)
+
+    def test_cross_day_strategy_groups(self):
+        from app import _apply_cross_day_strategy_groups
+
+        trades = [
+            {"ticker": "XYZ", "instrument": "option", "isShort": True, "optType": "Put", "strike": 50, "qty": 1, "closeDate": "2026-04-01", "strategy": "Short Put"},
+            {"ticker": "XYZ", "instrument": "option", "isShort": False, "optType": "Put", "strike": 45, "qty": 1, "closeDate": "2026-04-03", "strategy": "Long Put"},
+        ]
+        _apply_cross_day_strategy_groups(trades, window_days=7)
+        assert trades[0]["strategy"] in ("Bull Put Spread", "Bear Put Spread")
+        assert trades[0]["strategy"] == trades[1]["strategy"]
+        assert trades[0].get("crossDayGroup") is True
+
+    def test_rollup_assignment_pnl(self):
+        from app import _link_assignments_to_equity, _rollup_assignment_pnl
+
+        trades = [
+            {
+                "ticker": "ABC",
+                "instrument": "option",
+                "optType": "Put",
+                "strike": 50,
+                "qty": 1,
+                "closeDate": "2026-05-01",
+                "closeType": "assigned",
+                "closeTypeLabel": "Assigned",
+                "isShort": True,
+                "pnl": 100.0,
+                "isWin": True,
+            },
+            {
+                "ticker": "ABC",
+                "instrument": "equity",
+                "optType": "Stock",
+                "qty": 100,
+                "closeDate": "2026-05-01",
+                "closeType": "sold",
+                "isShort": False,
+                "pnl": -250.0,
+                "isWin": False,
+                "strategy": "Long Shares",
+            },
+        ]
+        _link_assignments_to_equity(trades)
+        _rollup_assignment_pnl(trades)
+        assert trades[0]["combinedPnl"] == pytest.approx(-150.0)
+        assert trades[0]["pnl"] == pytest.approx(-150.0)
+        assert trades[1].get("journalSuppress") is True
+
+    def test_build_daily_pnl_rolls(self):
+        from app import _build_daily_pnl
+
+        trades = [
+            {"ticker": "X", "closeDate": "2026-05-08", "pnl": 120.0, "qty": 1, "isRoll": True, "rollLabel": "$10 → $12", "legPnl": 50.0, "rollNetPnl": 120.0, "closeTypeLabel": "Roll"},
+            {"ticker": "Y", "closeDate": "2026-05-08", "pnl": 30.0, "qty": 1, "closeTypeLabel": "Sell to Close"},
+        ]
+        series = _build_daily_pnl(trades)
+        assert len(series) == 1
+        assert series[0]["dayPnl"] == pytest.approx(150.0)
+        assert series[0]["rollCount"] == 1
+        assert series[0]["rollPnl"] == pytest.approx(120.0)
+        assert series[0]["trades"][0]["rollLabel"] == "$10 → $12"
+
+    def test_group_win_rate_spread(self):
+        from app import _assign_strategy_group_ids, _compute_journal_stats
+
+        trades = [
+            {"ticker": "XYZ", "closeDate": "2026-04-01", "strategy": "Bear Put Spread", "pnl": 80.0, "isWin": True, "holdDays": 5, "instrument": "option", "symbol": "a"},
+            {"ticker": "XYZ", "closeDate": "2026-04-01", "strategy": "Bear Put Spread", "pnl": -30.0, "isWin": False, "holdDays": 5, "instrument": "option", "symbol": "b"},
+            {"ticker": "ABC", "closeDate": "2026-04-02", "strategy": "Short Put", "pnl": -10.0, "isWin": False, "holdDays": 3, "instrument": "option", "symbol": "c"},
+        ]
+        _assign_strategy_group_ids(trades)
+        stats = _compute_journal_stats(trades)
+        assert stats["groupTrades"] == 2
+        assert stats["winRate"] == pytest.approx(50.0)
+        assert stats["legWinRate"] == pytest.approx(33.3, abs=0.1)
+        assert stats["groupWins"] == 1
+        assert stats["groupLosses"] == 1
+
+    def test_journal_risk_metrics(self):
+        from app import _compute_journal_risk_metrics
+
+        series = [{"date": f"2026-01-{d:02d}", "dayPnl": float(d % 5 - 2)} for d in range(1, 21)]
+        risk = _compute_journal_risk_metrics(series)
+        assert risk is not None
+        assert "sharpe" in risk
+        assert "sortino" in risk
+        assert risk["riskDays"] >= 20
+
+    def test_roll_open_reference_rows(self):
+        from app import _append_roll_open_references, _link_rolls
+
+        open_events = [{
+            "symbol": "-xyz260620p00012000",
+            "ticker": "XYZ",
+            "optType": "Put",
+            "strike": 12,
+            "expiry": "2026-06-20",
+            "date": "2026-05-08",
+            "price": 1.1,
+            "qty": 1,
+            "is_short": True,
+        }]
+        closed = [{
+            "symbol": "-xyz260516p00010000",
+            "ticker": "XYZ",
+            "instrument": "option",
+            "optType": "Put",
+            "strike": 10,
+            "expiry": "2026-05-16",
+            "closeDate": "2026-05-08",
+            "openDate": "2026-04-01",
+            "qty": 1,
+            "isShort": True,
+            "pnl": 50.0,
+        }]
+        used = _link_rolls(closed, open_events)
+        assert used == {0}
+        assert closed[0]["isRoll"] is True
+        _append_roll_open_references(closed, open_events, used)
+        assert len(closed) == 2
+        ref = closed[1]
+        assert ref["isRollOpenRef"] is True
+        assert ref["journalSuppressStats"] is True
+        assert ref["pnl"] == 0
+        assert ref["closeTypeLabel"] == "Roll Open"
+        assert ref["linkedRollClose"]["ticker"] == "XYZ"
+
+    def test_compute_portfolio_mtm(self):
+        from app import compute_portfolio_mtm
+
+        positions = [
+            {"ticker": "ABC", "posType": "equity", "shares": 100, "avgCost": 50},
+            {"ticker": "ABC", "expiry": "2026-06-20", "optType": "Put", "strike": 45, "contracts": -1, "avgCost": 2.0},
+        ]
+        market = {"ABC": {"price": 55.0}}
+        marks = {"ABC|2026-06-20|P|45.0": {"mid": 1.5}}
+        mtm = compute_portfolio_mtm(positions, market, marks)
+        assert mtm["unrealizedPnl"] == pytest.approx(550.0, rel=1e-3)
+        assert mtm["bookValue"] == pytest.approx(5650.0, rel=1e-3)
+
+    def test_mtm_risk_metrics(self):
+        from app import _compute_mtm_risk_metrics
+
+        points = [
+            {"timestamp": f"2026-01-{d:02d}T12:00:00", "unrealizedPnl": float(d * 100 + (d % 3) * 25)}
+            for d in range(1, 8)
+        ]
+        risk = _compute_mtm_risk_metrics(points)
+        assert risk is not None
+        assert risk["mtmSharpe"] is not None
+        assert risk["fetchCount"] == 7
+
+    def test_ibkr_history_parser(self):
+        from app import _detect_history_format, _parse_history_raw_txns, _fifo_closed_option_trades
+
+        path = os.path.join(os.path.dirname(__file__), "fixtures", "ibkr_history.csv")
+        text = open(path, encoding="utf-8").read()
+        lines = text.replace("\ufeff", "").replace("\r", "").split("\n")
+        assert _detect_history_format(lines) == "ibkr"
+        trades, equity, fmt, warns = _parse_history_raw_txns(text)
+        assert fmt == "ibkr"
+        assert not warns
+        assert "test260620p00010000" in trades
+        closed, _, _ = _fifo_closed_option_trades("test260620p00010000", trades["test260620p00010000"])
+        assert len(closed) == 1
+        assert closed[0]["pnl"] == pytest.approx(-75.0, rel=1e-3)
+        assert closed[0]["closeType"] == "stc"
+        assert "ASGN" in equity
+        expired = _fifo_closed_option_trades("oldx260516p00010000", trades["oldx260516p00010000"])[0]
+        assert expired[0]["closeType"] == "expired"
+
+
+class TestBookSnapshotApi:
+    def test_book_snapshot_save_and_timeline(self, client):
+        payload = {
+            "timestamp": "2026-05-01T10:00:00",
+            "positions": [{"ticker": "ABC", "posType": "equity", "shares": 10, "avgCost": 100}],
+            "marketData": {"ABC": {"price": 110}},
+            "optionMarks": {},
+        }
+        res = client.post("/api/snapshots/book", json=payload)
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["ok"] is True
+        assert data["unrealizedPnl"] == pytest.approx(100.0)
+
+        res2 = client.post("/api/snapshots/book", json={
+            **payload,
+            "timestamp": "2026-05-02T10:00:00",
+            "marketData": {"ABC": {"price": 115}},
+        })
+        assert res2.status_code == 200
+
+        res3 = client.get("/api/snapshots/book-timeline?limit=10")
+        assert res3.status_code == 200
+        tl = res3.get_json()
+        assert len(tl["points"]) >= 2
+        assert tl["points"][-1]["unrealizedPnl"] == pytest.approx(150.0)
+
+
+class TestCorrelationMatrix:
+    def test_compute_correlation_matrix_psd_fix(self):
+        from app import compute_correlation_matrix
+
+        dates = pd.date_range("2024-01-01", periods=120, freq="B")
+        rng = np.random.default_rng(0)
+        a = pd.Series(rng.normal(0, 0.01, len(dates)), index=dates)
+        b = a * 0.8 + rng.normal(0, 0.005, len(dates))
+
+        def fake_download(tkr, period="1y", progress=False, auto_adjust=True):
+            close = (1 + a if tkr == "AAA" else 1 + b).cumprod() * 100
+            return pd.DataFrame({"Close": close})
+
+        with patch("app.yf.download", side_effect=fake_download):
+            corr, chol, tickers = compute_correlation_matrix(["AAA", "BBB"])
+
+        assert corr is not None
+        assert chol is not None
+        assert tickers == ["AAA", "BBB"]
+        assert corr.shape == (2, 2)
+        assert corr[0, 0] == pytest.approx(1.0, abs=1e-6)
+
+
+class TestTradeHistoryApi:
+    def test_trade_history_fifo_response(self, client, fidelity_history_text):
+        res = client.post("/api/trade-history", json={"historyText": fidelity_history_text})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "trades" in data
+        assert len(data["trades"]) >= 2
+        assert data["stats"]["totalTrades"] >= 2
+        assert "dailyPnl" in data
+        strategies = {t["strategy"] for t in data["trades"]}
+        assert "Short Put" in strategies or "Long Call" in strategies
+        for t in data["trades"]:
+            assert "closeTypeLabel" in t
+            assert "warnings" in t
+
+    def test_trade_history_empty(self, client):
+        res = client.post("/api/trade-history", json={"historyText": "Run Date,Action\n"})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get("trades") == [] or not data.get("trades")
+
+    def test_trade_history_ibkr_response(self, client, ibkr_history_text):
+        res = client.post("/api/trade-history", json={"historyText": ibkr_history_text})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get("historyFormat") == "ibkr"
+        assert len(data.get("trades", [])) >= 3
+        test_legs = [t for t in data["trades"] if t["ticker"] == "TEST"]
+        assert len(test_legs) == 1
+        assert test_legs[0]["pnl"] == pytest.approx(-75.0, rel=1e-3)
+        assert test_legs[0]["closeType"] == "stc"
+        assign = [t for t in data["trades"] if t["ticker"] == "ASGN" and t.get("instrument") == "option"]
+        assert len(assign) == 1
+        assert assign[0]["closeType"] == "assigned"
+
+    def test_trade_history_schwab_response(self, client, schwab_history_text):
+        res = client.post("/api/trade-history", json={"historyText": schwab_history_text})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get("historyFormat") == "schwab"
+        closed = [t for t in data.get("trades", []) if not t.get("journalSuppress")]
+        assert len(closed) >= 1
+
+    def test_api_version(self, client):
+        res = client.get("/api/version")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get("version") == "1.0.0"
+        assert data.get("name") == "options-dashboard"
+
+
+class TestDeskAlerts:
+    def test_desk_alerts_greek_thresholds(self, client):
+        payload = {
+            "positions": [],
+            "marketData": {},
+            "greeks": {
+                "portfolio": {"delta": 1200, "vega": 100, "theta": -50},
+                "byTicker": {"XYZ": {"delta": 450, "vega": 0, "theta": 0}},
+            },
+            "thresholds": {
+                "bookDeltaAbs": 500,
+                "bookVegaAbs": 2500,
+                "tickerDeltaAbs": 300,
+                "bookThetaBelow": -500,
+            },
+            "dismissedKeys": [],
+        }
+        res = client.post("/api/desk-alerts", json=payload)
+        assert res.status_code == 200
+        alerts = res.get_json().get("alerts", [])
+        cats = {a["category"] for a in alerts}
+        assert "greek" in cats
+        messages = " ".join(a["message"] for a in alerts)
+        assert "Book Δ" in messages
+        assert "XYZ Δ" in messages
+
+    def test_alert_history_endpoint(self, client):
+        client.post("/api/desk-alerts", json={
+            "positions": [],
+            "marketData": {},
+            "greeks": {"portfolio": {"delta": 900, "vega": 0, "theta": 0}, "byTicker": {}},
+            "thresholds": {"bookDeltaAbs": 500},
+            "dismissedKeys": [],
+        })
+        res = client.get("/api/alerts/history?limit=5")
+        assert res.status_code == 200
+        events = res.get_json().get("events", [])
+        assert len(events) >= 1
+        assert events[0].get("message")
+
+
+class TestGreeksApi:
+    def test_greeks_short_put(self, client):
+        payload = {
+            "positions": [{
+                "ticker": "TEST",
+                "posType": "option",
+                "optType": "Put",
+                "strike": 10,
+                "expiry": "2026-06-20",
+                "contracts": -2,
+            }],
+            "marketData": {
+                "TEST": {"price": 12.0, "iv": 60.0},
+            },
+        }
+        with patch("app.yf.Ticker") as mock_ticker:
+            mock_hist = pd.DataFrame({"Close": [100.0, 101.0, 102.0]})
+            inst = MagicMock()
+            inst.history.return_value = mock_hist
+            mock_ticker.return_value = inst
+            res = client.post("/api/greeks", json=payload)
+
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "portfolio" in data
+        assert "delta" in data["portfolio"]
+        assert data["portfolio"]["delta"] != 0
+        assert "risk" in data
+        assert len(data["positions"]) == 1
+
+
+class TestPackaging:
+    def _load_check_env(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "scripts" / "check_env.py"
+        spec = importlib.util.spec_from_file_location("check_env", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_check_env_passes(self):
+        mod = self._load_check_env()
+        assert mod.run_checks() == 0
+
+    def test_port_in_use(self):
+        mod = self._load_check_env()
+        assert mod.port_in_use(65533) is False
+
+
+class TestFrontendBundle:
+    def _load_frontend_scripts(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "tools" / "frontend_scripts.py"
+        spec = importlib.util.spec_from_file_location("frontend_scripts", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_module_order_matches_manifest(self):
+        mod = self._load_frontend_scripts()
+        order = mod._parse_module_order()
+        assert order[0] == "01-parsers.js"
+        assert order[-1] == "12-snapshots.js"
+        assert len(order) == 12
+
+    def test_render_script_block_modes(self):
+        mod = self._load_frontend_scripts()
+        modules = mod.render_script_block("modules")
+        assert modules.count("<script") == 12
+        assert "01-parsers.js" in modules
+        bundle = mod.render_script_block("bundle")
+        assert "app.bundle.js" in bundle
+        assert "01-parsers.js" not in bundle
+
+    def test_index_bundle_mode(self, client, monkeypatch):
+        from pathlib import Path
+
+        bundle = Path(__file__).resolve().parent.parent / "static" / "dist" / "app.bundle.js"
+        if not bundle.is_file():
+            pytest.skip("bundle not built — run npm run build")
+
+        monkeypatch.setenv("USE_JS_BUNDLE", "1")
+        res = client.get("/")
+        assert res.status_code == 200
+        assert b"app.bundle.js" in res.data
+        assert b"01-parsers.js" not in res.data
+
+
+class TestSchwabParser:
+    def test_schwab_history_format_detection(self, schwab_history_text):
+        from app import _detect_history_format
+
+        lines = schwab_history_text.replace("\r", "").split("\n")
+        assert _detect_history_format(lines) == "schwab"
+
+
+class TestPidLock:
+    def _load_pidlock(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "scripts" / "pidlock.py"
+        spec = importlib.util.spec_from_file_location("pidlock", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_lock_roundtrip(self, tmp_path, monkeypatch):
+        mod = self._load_pidlock()
+        lock = tmp_path / ".options-dashboard.lock"
+        monkeypatch.setattr(mod, "LOCK_PATH", lock)
+        mod.write_lock(4242, 5000)
+        data = mod.read_lock()
+        assert data["pid"] == 4242
+        assert data["port"] == 5000
+        mod.clear_lock()
+        assert mod.read_lock() is None

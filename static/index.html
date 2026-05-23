@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Options Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <span class="top-title">Options Dashboard <span class="top-version" title="Release v1.0.0">v1.0</span></span>
+  <div class="tabs" role="tablist">
+    <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="positions">Positions</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="risk">Risk</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="simulate">Simulation</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="journal">Journal</button>
+  </div>
+  <div class="top-bar-actions">
+    <span class="kbd-hint" id="kbd-hint" title="Keyboard shortcuts (when not typing in a field)">Shortcuts: <kbd>1</kbd>–<kbd>4</kbd> tabs · <kbd>/</kbd> jump · <kbd>r</kbd> marks</span>
+    <button class="btn btn-sm btn-ghost" id="btn-wide-layout" type="button" title="Toggle wide layout (1380px vs 1100px)">Wide</button>
+    <button class="btn btn-sm btn-ghost" id="btn-open-import" type="button">Import</button>
+  </div>
+</div>
+
+<div id="ticker-search-overlay" hidden class="modal-overlay">
+  <div class="modal" style="max-width:380px">
+    <button class="modal-close" id="ticker-search-close">✕</button>
+    <h3 style="margin-bottom:10px">Jump to ticker</h3>
+    <input id="ticker-search-input" placeholder="Type ticker symbol…" style="width:100%;margin-bottom:10px;padding:10px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono)">
+    <div id="ticker-search-results" style="max-height:240px;overflow-y:auto;font-family:var(--mono);font-size:12px"></div>
+  </div>
+</div>
+
+<!-- Import drawer -->
+<div id="import-drawer" hidden class="drawer-overlay">
+  <div class="drawer-panel" id="import-drawer-panel">
+    <div class="drawer-hdr">
+      <span style="font-weight:500;font-size:15px">Import data</span>
+      <button class="btn btn-sm btn-ghost" id="btn-close-import" type="button">Close</button>
+    </div>
+    <div id="import-drawer-body">
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:6px;font-weight:500">Broker</div>
+      <div class="broker-selector" id="broker-selector">
+        <button class="broker-btn active" data-broker="fidelity">Fidelity</button>
+        <button class="broker-btn" data-broker="schwab">Schwab</button>
+        <button class="broker-btn" data-broker="ibkr">IBKR</button>
+      </div>
+    </div>
+    <div class="broker-instructions" id="broker-instructions">
+      <div id="instr-fidelity">
+        <strong>Fidelity export instructions:</strong>
+        <ol>
+          <li>Log into <a href="https://www.fidelity.com" target="_blank" style="color:var(--accent)">fidelity.com</a> → <strong>Accounts &amp; Trade</strong> → <strong>Positions</strong></li>
+          <li>Click <strong>Download</strong> (top right) → save the CSV as your <strong>Portfolio</strong> file</li>
+          <li>Go to <strong>Accounts &amp; Trade</strong> → <strong>History</strong> → set date range → <strong>Download</strong></li>
+          <li>Save that CSV as your <strong>History</strong> file</li>
+        </ol>
+      </div>
+      <div id="instr-schwab" hidden>
+        <strong>Schwab export instructions:</strong>
+        <ol>
+          <li>Log into <a href="https://www.schwab.com" target="_blank" style="color:var(--accent)">schwab.com</a> → <strong>Accounts</strong> tab → <strong>Positions</strong></li>
+          <li>Click <strong>Export</strong> (top right) → save CSV as your <strong>Portfolio</strong> file</li>
+          <li>Go to <strong>Accounts</strong> → <strong>History</strong> → select <strong>All Transactions</strong> and date range</li>
+          <li>Click <strong>Export</strong> → select <strong>CSV</strong> → save as your <strong>History</strong> file</li>
+        </ol>
+      </div>
+      <div id="instr-ibkr" hidden>
+        <strong>IBKR export instructions:</strong>
+        <ol>
+          <li>Log into <a href="https://www.interactivebrokers.com" target="_blank" style="color:var(--accent)">IBKR Portal</a> → <strong>Performance &amp; Reports</strong> → <strong>Flex Queries</strong></li>
+          <li>Create a <strong>Trade Confirmation Flex Query</strong> with all option fields, export as CSV for <strong>History</strong></li>
+          <li>Go to <strong>Portfolio</strong> → <strong>Positions</strong> → use the export/download option for <strong>Portfolio</strong></li>
+        </ol>
+      </div>
+    </div>
+    <div class="upload-grid">
+      <div class="drop-zone" id="dz-positions">
+        <div class="drop-icon">↑</div>
+        <div class="drop-label">Portfolio CSV(s)</div>
+        <div class="drop-hint" id="dz-positions-hint">Positions export</div>
+        <input type="file" accept=".csv" multiple hidden>
+      </div>
+      <div class="drop-zone" id="dz-history">
+        <div class="drop-icon">↑</div>
+        <div class="drop-label">History CSV(s) <span style="font-weight:400;color:var(--tx3)">(optional)</span></div>
+        <div class="drop-hint" id="dz-history-hint">Fills, adj basis, closed-trade filter, journal</div>
+        <input type="file" accept=".csv" multiple hidden>
+      </div>
+    </div>
+    <div id="merge-mode-section" hidden style="margin-bottom:12px;padding:12px 16px;background:var(--bg2);border-radius:var(--radius);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--tx2);font-weight:500">Multiple files detected — merge mode:</span>
+      <div class="broker-selector" id="merge-selector">
+        <button class="merge-btn active" data-merge="union">Union (deduplicate)</button>
+        <button class="merge-btn" data-merge="add">Append (keep all rows)</button>
+      </div>
+    </div>
+    <!-- Custom Catalysts (#8) -->
+    <div id="catalyst-section" style="margin-top:16px">
+      <div style="font-size:12px;color:var(--tx2);font-weight:500;margin-bottom:6px">Custom Catalysts</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="cat-ticker" placeholder="Ticker" style="width:70px;padding:6px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:12px">
+        <input id="cat-date" type="date" style="padding:6px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:12px">
+        <input id="cat-label" placeholder="Event (e.g. PDUFA)" style="width:140px;padding:6px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:12px">
+        <button class="btn btn-sm" id="btn-add-catalyst">Add</button>
+      </div>
+      <div id="catalyst-list" style="margin-top:8px;font-size:11px;color:var(--tx3)"></div>
+    </div>
+    <button class="btn btn-fetch" id="btn-fetch" disabled>
+      <span>⚡</span> <span>Fetch live prices + IV</span>
+    </button>
+    <div style="font-size:11px;color:var(--tx3);margin-top:6px">Portfolio CSV required. History optional (fills, adj basis, journal, closed-leg filter).</div>
+    <div class="fetch-log" id="fetch-log"></div>
+    <div class="debug-box" id="debug-box" hidden></div>
+    <div class="error-box" id="error-box" hidden></div>
+    <div class="session-banner" id="session-restore-banner" hidden>
+      <span id="session-restore-text">Restored previous session</span>
+      <button class="btn btn-sm btn-ghost" id="btn-clear-session" type="button">Clear saved session</button>
+    </div>
+    <div class="ready-banner" id="ready-banner" hidden>
+      <div><div class="ready-text" id="ready-text"></div><div class="ready-sub" id="ready-sub"></div></div>
+      <button class="btn" id="btn-view">View positions →</button>
+    </div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- POSITIONS -->
+  <div id="tab-dashboard">
+    <div id="dashboard-sticky" style="position:sticky;top:56px;z-index:40;background:var(--bg);padding-bottom:8px;border-bottom:1px solid var(--bd)">
+      <div class="provenance-bar" id="provenance-bar" hidden></div>
+      <div class="notice-bar" id="notice-bar" hidden>
+        <span>Live prices not loaded — ITM/OTM status unavailable</span>
+        <button class="btn btn-sm" id="btn-goto-fetch">Fetch data</button>
+      </div>
+      <div class="notice-bar" id="history-notice-bar" hidden style="background:var(--bg2);color:var(--tx2);border:1px solid var(--bd)">
+        <span id="history-notice-text">Portfolio-only mode: P&amp;L, breakevens, adjusted cost basis, and per-fill detail require History CSV.</span>
+      </div>
+      <div class="summary" id="summary"></div>
+      <div id="view-toggle" style="display:flex;gap:6px;justify-content:flex-end;margin-bottom:4px">
+        <span style="font-size:11px;color:var(--tx3);padding:4px 0">Group by:</span>
+        <button class="view-btn active" data-view="ticker">Ticker</button>
+        <button class="view-btn" data-view="expiry">Expiry</button>
+      </div>
+    </div>
+    <div class="summary" id="theta-dashboard-summary" hidden></div>
+    <div class="summary" id="greeks-dashboard-summary" hidden></div>
+    <div class="outer" id="attribution-section" hidden style="padding:16px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:500;font-size:14px">P&amp;L attribution <span style="font-weight:400;color:var(--tx3);font-size:11px">since last fetch</span></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="attribution-asof" style="font-size:10px;color:var(--tx3);font-family:var(--mono)"></span>
+          <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-attribution" data-export-name="attribution" title="Export PNG">PNG</button>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.45">Greek decomposition of book change vs your <em>previous</em> fetch: Δ·ΔS + ½Γ·ΔS² + Θ·Δt + V·ΔIV (Black-Scholes; theoretical, not broker MTM). Shown only after a re-fetch, not the first load.</div>
+      <canvas id="chart-attribution" height="120"></canvas>
+      <div id="attribution-table" style="margin-top:10px;font-size:11px;font-family:var(--mono);max-height:220px;overflow-y:auto"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px" id="marks-toolbar" hidden>
+      <button class="btn btn-sm btn-ghost" id="btn-refresh-marks" type="button">Refresh option marks</button>
+      <label style="font-size:11px;color:var(--tx2);display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="auto-refresh-marks" style="accent-color:var(--accent)">
+        Auto
+        <select id="auto-refresh-interval" style="padding:3px 6px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:10px">
+          <option value="5">5m</option>
+          <option value="10" selected>10m</option>
+          <option value="15">15m</option>
+        </select>
+      </label>
+      <span id="marks-stale-label" style="font-size:10px;color:var(--tx3);font-family:var(--mono)"></span>
+    </div>
+    <div id="dashboard-sim-section" hidden style="margin-bottom:12px;text-align:center">
+      <button class="btn btn-fetch" id="btn-simulate-inline" style="background:var(--bg2);color:var(--tx)">
+        <span>🎲</span> <span>Run Monte Carlo simulation (10,000 paths)</span>
+      </button>
+      <div class="fetch-log" id="sim-log-inline"></div>
+    </div>
+    <div class="positions-layout" id="positions-layout">
+      <div id="positions-book-col">
+        <div class="outer" id="portfolio-body"></div>
+        <div class="footer" id="footer"></div>
+      </div>
+      <aside class="positions-rail" id="positions-rail" hidden>
+        <div class="rail-card" id="rail-alerts">
+          <div class="rail-card-hdr">Alerts <span id="rail-alerts-count" style="font-size:10px;color:var(--tx3);font-weight:400"></span>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-alert-settings" style="padding:2px 8px;font-size:10px" title="Alert thresholds">⚙</button>
+          </div>
+          <div id="rail-alerts-settings" hidden class="alert-settings-panel"></div>
+          <div id="rail-alerts-body" class="rail-list"><span style="color:var(--tx3)">Fetch data to see desk alerts</span></div>
+          <div class="rail-alerts-history-wrap">
+            <div class="rail-card-hdr" style="margin-top:10px;font-size:10px;color:var(--tx3)">Recent log</div>
+            <div id="rail-alerts-history" class="rail-list"></div>
+          </div>
+        </div>
+        <div class="rail-card" id="rail-mini-risk">
+          <div class="rail-card-hdr">Quick risk <button class="btn btn-sm btn-ghost" type="button" id="rail-goto-risk" style="padding:2px 8px;font-size:10px">Full →</button></div>
+          <div id="rail-mini-risk-body" class="rail-list"><span style="color:var(--tx3)">Loading…</span></div>
+        </div>
+        <div class="rail-card" id="rail-expiring">
+          <div class="rail-card-hdr">Expiring ≤7d</div>
+          <div id="rail-expiring-body" class="rail-list"></div>
+        </div>
+        <div class="rail-card" id="rail-catalysts">
+          <div class="rail-card-hdr">Catalysts (14d)</div>
+          <div id="rail-catalysts-body" class="rail-list"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- SIMULATE TAB -->
+  <div id="tab-simulate" hidden>
+    <div style="text-align:center;margin-bottom:20px">
+      <button class="btn btn-fetch" id="btn-simulate" disabled>
+        <span>🎲</span> <span>Run simulation (10,000 paths)</span>
+      </button>
+      <div class="fetch-log" id="sim-log"></div>
+    </div>
+    <div id="sim-results" hidden>
+      <div id="sim-results-top"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <nav class="sim-jump-nav" id="sim-jump-nav" hidden aria-label="Simulation sections">
+          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-results-top">Summary</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-block-portfolio">Portfolio</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="corr-section">Correlation</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-path-layout">Fan charts</button>
+        </nav>
+        <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-sm btn-ghost" id="btn-export-sim-summary" type="button">Export summary</button>
+        </div>
+      </div>
+      <div class="summary" id="sim-summary"></div>
+      <div style="display:grid;grid-template-columns:1fr;gap:20px">
+        <div class="outer" style="padding:20px" id="sim-block-portfolio">
+          <div class="chart-hdr">
+            <div class="chart-hdr-title">Portfolio P&L Distribution</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-portfolio" data-export-name="sim-portfolio-pnl" title="Export PNG">PNG</button>
+          </div>
+          <canvas id="chart-portfolio" height="200"></canvas>
+          <div id="portfolio-stats" style="margin-top:12px;font-size:12px;color:var(--tx2);font-family:var(--mono)"></div>
+        </div>
+        <div class="outer" style="padding:20px">
+          <div class="chart-hdr">
+            <div class="chart-hdr-title">P&L by Ticker (Median)</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-tickers" data-export-name="sim-pnl-by-ticker" title="Export PNG">PNG</button>
+          </div>
+          <canvas id="chart-tickers" height="250"></canvas>
+        </div>
+        <div class="outer" style="padding:20px">
+          <div class="chart-hdr">
+            <div class="chart-hdr-title">Probability of Profit by Strategy</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-strategies" data-export-name="sim-profit-by-strategy" title="Export PNG">PNG</button>
+          </div>
+          <canvas id="chart-strategies" height="250"></canvas>
+        </div>
+        <!-- Correlation heatmap (#10) -->
+        <div class="outer" style="padding:20px" id="corr-section" hidden>
+          <div class="chart-hdr">
+            <div class="chart-hdr-title">Correlation Matrix</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-el="corr-heatmap" data-export-name="sim-correlation-matrix" title="Export PNG">PNG</button>
+          </div>
+          <div id="corr-heatmap"></div>
+        </div>
+        <div id="theta-section" hidden>
+          <div class="outer" style="padding:20px">
+            <div class="chart-hdr">
+              <div>
+                <div class="chart-hdr-title">Daily Theta by Expiry Group</div>
+                <div id="theta-subtitle" class="chart-hdr-meta" style="margin-top:4px"></div>
+              </div>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-theta-daily" data-export-name="sim-theta-daily" title="Export PNG">PNG</button>
+            </div>
+            <canvas id="chart-theta-daily" height="220"></canvas>
+          </div>
+          <div class="outer" style="padding:20px;margin-top:20px">
+            <div class="chart-hdr">
+              <div>
+                <div class="chart-hdr-title">Cumulative Theta Earned</div>
+                <div id="theta-cumul-total" class="chart-hdr-meta" style="margin-top:4px;color:#20c7c7"></div>
+              </div>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-theta-cumul" data-export-name="sim-theta-cumulative" title="Export PNG">PNG</button>
+            </div>
+            <canvas id="chart-theta-cumul" height="280"></canvas>
+          </div>
+        </div>
+        <div class="sim-layout" id="sim-path-layout" hidden>
+          <nav class="sim-nav" id="sim-ticker-nav"></nav>
+          <div>
+            <div class="sim-path-toolbar">
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-expand-all">Expand all</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-collapse-all">Collapse all</button>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-all-paths title="Export all fan chart PNGs">Export all fan charts</button>
+              <label style="font-size:11px;color:var(--tx2);display:flex;align-items:center;gap:6px;margin-left:auto">
+                Focus
+                <select id="sim-focus-select" style="padding:4px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+                  <option value="">All tickers</option>
+                </select>
+              </label>
+            </div>
+            <div id="ticker-path-charts"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="sim-empty" class="empty-state">
+      <h2>Ready to simulate</h2>
+      <p>Import your portfolio and fetch live data, then run a Monte Carlo simulation.</p>
+    </div>
+  </div>
+
+  <!-- RISK -->
+  <div id="tab-risk" hidden>
+    <div id="risk-empty" class="empty-state">
+      <h2>Risk Analysis</h2>
+      <p>Fetch live data first, then the risk matrix and vol surface will be available here.</p>
+    </div>
+    <div id="risk-content" hidden>
+      <div class="summary" id="risk-summary"></div>
+      <div class="outer" style="padding:20px;margin-bottom:20px" id="whatif-section">
+        <div style="font-weight:500;font-size:14px;margin-bottom:8px">What-if legs</div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:10px">Add hypothetical options to see combined Greeks and risk matrix impact (avg cost optional for new shorts).</div>
+        <div class="whatif-row">
+          <input id="wi-ticker" placeholder="Ticker" style="width:64px" list="wi-ticker-list">
+          <datalist id="wi-ticker-list"></datalist>
+          <select id="wi-expiry" style="min-width:130px"><option value="">Expiry…</option></select>
+          <select id="wi-type" style="width:56px"><option value="Put">Put</option><option value="Call">Call</option></select>
+          <select id="wi-strike" style="min-width:72px"><option value="">Strike…</option></select>
+          <input id="wi-contracts" type="number" placeholder="Qty" style="width:56px" value="-1">
+          <input id="wi-cost" type="number" step="0.01" placeholder="Avg $" style="width:64px">
+          <button class="btn btn-sm" id="btn-whatif-add" type="button">Add leg</button>
+          <button class="btn btn-sm btn-ghost" id="btn-whatif-cancel-edit" type="button" hidden>Cancel edit</button>
+          <button class="btn btn-sm btn-ghost" id="btn-whatif-clear" type="button">Clear all</button>
+        </div>
+        <div id="whatif-list" style="min-height:24px;margin-bottom:10px"></div>
+        <div class="summary" id="whatif-greeks-summary" hidden></div>
+      </div>
+      <div class="outer" style="padding:20px" id="risk-matrix-container">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+          <div style="font-weight:500;font-size:14px">Risk Matrix (Price × IV)</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <label style="font-size:11px;color:var(--tx2)">Days fwd:
+                <input type="range" id="risk-days-slider" min="0" max="730" value="0" step="1" style="width:160px;vertical-align:middle">
+                <span id="risk-days-label" style="font-family:var(--mono);font-size:11px;min-width:72px;display:inline-block">0</span>
+              </label>
+              <button class="btn btn-sm" id="btn-risk-matrix">Load</button>
+              <button class="btn btn-sm btn-ghost" id="btn-export-risk-csv" type="button" title="Export matrix CSV">CSV</button>
+              <button class="btn btn-sm btn-ghost" id="btn-export-risk-png" type="button" title="Screenshot table">PNG</button>
+            </div>
+            <div id="risk-expiry-checkpoints" class="risk-expiry-chips" hidden></div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:8px" id="risk-matrix-caption">Theoretical BS P&amp;L vs entry cost (avg fill), not broker MTM. IV shocks are absolute vol points.</div>
+        <div id="risk-matrix-body"></div>
+      </div>
+      <!-- Unusual Activity (#17) -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="unusual-section" hidden>
+        <div style="font-weight:500;font-size:14px;margin-bottom:12px">Unusual Options Activity</div>
+        <div id="unusual-body" style="max-height:400px;overflow-y:auto"></div>
+      </div>
+      <!-- Vol Surface (#16) -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="vol-surface-container" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div class="chart-hdr-title">Vol Surface</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="broker-selector" id="vol-type-selector" style="font-size:11px">
+              <button class="broker-btn active" data-voltype="puts" style="padding:4px 10px;font-size:11px">Puts</button>
+              <button class="broker-btn" data-voltype="calls" style="padding:4px 10px;font-size:11px">Calls</button>
+              <button class="broker-btn" data-voltype="both" style="padding:4px 10px;font-size:11px">Both</button>
+            </div>
+            <select id="vol-surface-ticker" style="padding:6px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:12px"></select>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-vol-surface" data-export-name="vol-surface" title="Export PNG">PNG</button>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:8px">IV by strike from option chain. Only strikes with open interest or volume are shown.</div>
+        <canvas id="chart-vol-surface" height="250"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- JOURNAL -->
+  <div id="tab-history" hidden>
+    <div id="history-empty" class="empty-state">
+      <h2>Trade journal</h2>
+      <p>Upload your history CSV to see closed trade performance and stats.</p>
+    </div>
+    <div id="history-content" hidden>
+      <div class="summary" id="history-summary"></div>
+      <div id="history-mix-note" style="font-size:10px;color:var(--tx3);margin:-8px 0 12px;font-family:var(--mono)" hidden></div>
+      <div class="toolbar-row">
+        <input id="hist-filter-ticker" placeholder="Filter ticker…" style="width:120px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+        <select id="hist-filter-strategy" style="padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+          <option value="">All strategies</option>
+        </select>
+        <span id="hist-date-filter-chip" hidden style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:var(--radius);border:1px solid var(--accent);background:rgba(32,199,199,0.08);font-family:var(--mono);font-size:10px;color:var(--accent)">
+          <span id="hist-date-filter-label"></span>
+          <button type="button" id="btn-clear-journal-date" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px;line-height:1" title="Clear date filter">×</button>
+        </span>
+        <button class="btn btn-sm btn-ghost" id="btn-export-journal-csv" type="button">Export CSV</button>
+        <label style="font-size:10px;color:var(--tx2);display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-family:var(--mono)">
+          <input type="checkbox" id="hist-show-assignment-legs"> Show assignment stock legs
+        </label>
+      </div>
+      <div id="history-data-warnings" hidden style="margin:0 0 12px;padding:10px 12px;border-radius:var(--radius);border:1px solid var(--warn-bd);background:rgba(255,193,7,0.06);font-size:10px;color:var(--warn-tx);font-family:var(--mono);line-height:1.5"></div>
+      <div id="history-drill-summary" hidden style="margin:0 0 12px;padding:10px 12px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);font-size:11px;font-family:var(--mono)"></div>
+      <div class="outer" style="padding:20px" id="history-table-container"></div>
+      
+      <div class="outer" style="padding:20px;margin-top:20px" id="snapshot-history-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Desk snapshot history</div>
+          <button class="btn btn-sm btn-ghost" type="button" id="btn-refresh-snapshots">Refresh</button>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:14px;line-height:1.45">Stored in <code style="font-family:var(--mono)">portfolio.db</code> on each fetch — attribution totals after re-fetch, book greeks per fetch, and fetch log.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <div class="chart-hdr" style="margin-bottom:6px">
+              <div class="chart-hdr-title" style="font-size:11px">Attribution total (re-fetch)</div>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-snapshot-attribution" data-export-name="snapshot-attribution" title="Export PNG">PNG</button>
+            </div>
+            <div id="snapshot-attribution-chart-wrap"></div>
+          </div>
+          <div>
+            <div class="chart-hdr" style="margin-bottom:6px">
+              <div class="chart-hdr-title" style="font-size:11px">Book greeks over time</div>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-snapshot-greeks" data-export-name="snapshot-greeks" title="Export PNG">PNG</button>
+            </div>
+            <div id="snapshot-greek-chart-wrap"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:16px" id="snapshot-diff-section">
+          <div style="font-size:11px;font-weight:500;margin-bottom:6px">Snapshot diff</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;font-family:var(--mono);font-size:11px">
+            <label>A <select id="snapshot-diff-a" style="padding:4px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx)"></select></label>
+            <label>B <select id="snapshot-diff-b" style="padding:4px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx)"></select></label>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-snapshot-diff">Compare</button>
+          </div>
+          <div id="snapshot-diff-result" style="font-size:11px;font-family:var(--mono)"></div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div class="chart-hdr" style="margin-bottom:6px">
+            <div class="chart-hdr-title" style="font-size:11px">Per-ticker price + IV</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-snapshot-ticker" data-export-name="snapshot-ticker" title="Export PNG">PNG</button>
+          </div>
+          <select id="snapshot-ticker-select" style="margin-bottom:8px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px"></select>
+          <div id="snapshot-ticker-chart-wrap"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:500;margin-bottom:6px">Recent fetches</div>
+          <div id="snapshot-sessions-list"></div>
+        </div>
+      </div>
+
+      <div class="outer" style="padding:20px;margin-top:20px" id="history-chart-container" hidden>
+        <div class="chart-hdr" style="margin-bottom:4px">
+          <div>
+            <div class="chart-hdr-title">Cumulative P&L</div>
+            <div id="history-chart-hint" class="chart-hdr-meta" style="margin-top:4px"></div>
+          </div>
+          <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-cumulative-pnl" data-export-name="journal-cumulative-pnl" title="Export PNG">PNG</button>
+        </div>
+        <canvas id="chart-cumulative-pnl" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Roll Modal (#11) -->
+<div id="roll-modal" hidden class="modal-overlay">
+  <div class="modal">
+    <button class="modal-close" id="roll-modal-close">✕</button>
+    <h3>Roll Analyzer</h3>
+    <div id="roll-modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+<!-- od:scripts-start -->
+<script src="/static/js/01-parsers.js"></script>
+<script src="/static/js/02-portfolio.js"></script>
+<script src="/static/js/03-render.js"></script>
+<script src="/static/js/04-state.js"></script>
+<script src="/static/js/05-session-api.js"></script>
+<script src="/static/js/06-fetch.js"></script>
+<script src="/static/js/07-tabs.js"></script>
+<script src="/static/js/08-simulate.js"></script>
+<script src="/static/js/09-risk.js"></script>
+<script src="/static/js/10-journal.js"></script>
+<script src="/static/js/11-roll-catalysts-init.js"></script>
+<script src="/static/js/12-snapshots.js"></script>
+<!-- od:scripts-end -->
+</body>
+</html>

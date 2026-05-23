@@ -1,0 +1,16 @@
+{
+  "name": "options-dashboard",
+  "private": true,
+  "description": "Optional frontend bundle step (dev uses classic script tags)",
+  "scripts": {
+    "build": "node tools/build_frontend.mjs",
+    "build:dev": "node tools/build_frontend.mjs --dev",
+    "build:watch": "node tools/build_frontend.mjs --watch --dev",
+    "build:prod": "node tools/build_frontend.mjs --sync-index",
+    "index:bundle": "node tools/build_frontend.mjs --sync-index-only",
+    "index:modules": "node tools/build_frontend.mjs --sync-index-only --modules"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

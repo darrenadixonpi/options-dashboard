@@ -1,0 +1,13 @@
+node_modules/
+static/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+dist/
+build/
+portfolio.db
+.env
+.options-dashboard.lock
+.DS_Store
+*.log
