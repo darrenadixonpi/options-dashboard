@@ -4,12 +4,12 @@ The original **pre-v1.0 build specification** lived here while features were bei
 
 | Need | Read |
 |------|------|
-| **What's next / backlog** | [DOCKET.md](../DOCKET.md) |
-| **How the math & pipeline work** | [TECHNICAL_EXPLAINER.md](../TECHNICAL_EXPLAINER.md) |
-| **Run, Docker, GitHub** | [README.md](../README.md) · [DOCKER.md](../DOCKER.md) · [GITHUB.md](../GITHUB.md) |
-| **Release history** | [CHANGELOG.md](../CHANGELOG.md) |
+| **What's next / backlog** | [DOCKET.md](DOCKET.md) |
+| **How the math & pipeline work** | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) |
+| **Run, Docker, GitHub** | [README.md](README.md) · [DOCKER.md](DOCKER.md) · [GITHUB.md](GITHUB.md) |
+| **Release history** | [CHANGELOG.md](CHANGELOG.md) |
 
 Historical copy of the old guide (line-number references may be stale):  
-[docs/archive/IMPLEMENTATION_GUIDE_v0.md](archive/IMPLEMENTATION_GUIDE_v0.md)
+[docs/archive/IMPLEMENTATION_GUIDE_v0.md](docs/archive/IMPLEMENTATION_GUIDE_v0.md)
 
-When adding a **new** feature, update `DOCKET.md` first, then code + tests — no need to revive the old tier format unless you want detailed API contracts again.
+When adding a **new** feature, update [DOCKET.md](DOCKET.md) first, then code + tests — no need to revive the old tier format unless you want detailed API contracts again.

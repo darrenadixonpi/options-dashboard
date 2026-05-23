@@ -171,13 +171,13 @@ Each path is evaluated at the simulation horizon $T_{\text{sim}}$ (the number of
 
 **Options** (settled at intrinsic):
 
-$$\text{P\&L}_i = \text{contracts}_i \times \big[\max(S_T - K_i,\, 0) \cdot \mathbb{1}_{\text{call}} + \max(K_i - S_T,\, 0) \cdot \mathbb{1}_{\text{put}} - c_i\big] \times 100$$
+$$\mathrm{PnL}_i = \text{contracts}_i \times \big[\max(S_T - K_i,\, 0) \cdot \mathbb{1}_{\text{call}} + \max(K_i - S_T,\, 0) \cdot \mathbb{1}_{\text{put}} - c_i\big] \times 100$$
 
 where $c_i$ is the average cost (premium paid or received per share).
 
 **Equity:**
 
-$$\text{P\&L}_i = \text{shares}_i \times (S_T - b_i)$$
+$$\mathrm{PnL}_i = \text{shares}_i \times (S_T - b_i)$$
 
 where $b_i$ is the adjusted cost basis (raw cost minus collected premium per share).
 
@@ -185,7 +185,7 @@ where $b_i$ is the adjusted cost basis (raw cost minus collected premium per sha
 
 - Mean, median
 - Percentiles: P5, P25, P75, P95
-- $P(\text{profit}) = \frac{1}{n}\sum_{j=1}^{n} \mathbb{1}\{\text{P\&L}_j \geq 0\}$
+- $P(\text{profit}) = \frac{1}{n}\sum_{j=1}^{n} \mathbb{1}\{\mathrm{PnL}_j \geq 0\}$
 - Histogram (60 bins)
 
 ---
@@ -222,7 +222,7 @@ The risk matrix evaluates portfolio P&L under a Cartesian product of parallel sh
 
 For each cell at price shock $\Delta S\%$ and IV shock $\Delta\sigma$ (in percentage points):
 
-$$\text{P\&L}(\Delta S\%, \Delta\sigma) = \sum_i \text{qty}_i \times \big[V_i^{\text{shocked}} - c_i\big] \times 100$$
+$$\mathrm{PnL}(\Delta S\%, \Delta\sigma) = \sum_i \text{qty}_i \times \big[V_i^{\text{shocked}} - c_i\big] \times 100$$
 
 where the shocked option value for position $i$ is:
 
@@ -236,7 +236,7 @@ and $c_i$ is the position's average cost. Note this computes mark-to-model P&L r
 - IV shocks: {−15, −10, −5, 0, +5, +10, +15} percentage points
 - Days forward: 0–90 (slider), subtracted from each position's DTE (clamped to $\geq 1$ day)
 
-**Equity positions** contribute linearly: $\text{P\&L}_{\text{equity}} = \text{shares} \times S_0 \times \Delta S\% / 100$.
+**Equity positions** contribute linearly: $\mathrm{PnL}_{\text{equity}} = \text{shares} \times S_0 \times \Delta S\% / 100$.
 
 The center cell $(0\%, 0\text{pt})$ at days forward $= 0$ should show approximately zero P&L (current mark = cost for recently opened positions). With days forward $> 0$, the center cell shows pure theta decay. The curvature of each row reflects gamma exposure; the slope of each column reflects vega exposure.
 
@@ -403,19 +403,19 @@ The history parser reads brokerage transaction CSVs and pairs opening/closing tr
 
 For short positions (sold to open, bought to close):
 
-$$\text{P\&L} = (\bar{p}_{\text{open}} - \bar{p}_{\text{close}}) \times \text{qty} \times 100$$
+$$\mathrm{PnL} = (\bar{p}_{\text{open}} - \bar{p}_{\text{close}}) \times \text{qty} \times 100$$
 
 For long positions (bought to open, sold to close):
 
-$$\text{P\&L} = (\bar{p}_{\text{close}} - \bar{p}_{\text{open}}) \times \text{qty} \times 100$$
+$$\mathrm{PnL} = (\bar{p}_{\text{close}} - \bar{p}_{\text{open}}) \times \text{qty} \times 100$$
 
 For expired positions: $\bar{p}_{\text{close}} = 0$ (total loss for longs, full profit for shorts).
 
 **Statistics:**
 
-- **Win rate:** $\frac{|\{i : \text{P\&L}_i > 0\}|}{n}$
-- **Profit factor:** $\frac{\sum_{i:\text{P\&L}_i > 0} \text{P\&L}_i}{\big|\sum_{i:\text{P\&L}_i < 0} \text{P\&L}_i\big|}$ — ratio of gross profits to gross losses. Values > 1 indicate net profitability. Undefined (displayed as ∞) when no losing trades exist.
-- **Expectancy:** $\frac{1}{n}\sum_i \text{P\&L}_i$ — average P&L per trade.
+- **Win rate:** $\frac{|\{i : \mathrm{PnL}_i > 0\}|}{n}$
+- **Profit factor:** $\frac{\sum_{i:\mathrm{PnL}_i > 0} \mathrm{PnL}_i}{\big|\sum_{i:\mathrm{PnL}_i < 0} \mathrm{PnL}_i\big|}$ — ratio of gross profits to gross losses. Values > 1 indicate net profitability. Undefined (displayed as ∞) when no losing trades exist.
+- **Expectancy:** $\frac{1}{n}\sum_i \mathrm{PnL}_i$ — average P&L per trade.
 - **Average hold:** Mean calendar days between open and close dates.
 
 ---
