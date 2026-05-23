@@ -2,7 +2,18 @@
 
 **v1.0.0** — Local web app for visualizing your options portfolio with live market data, Greeks, Monte Carlo simulation, and trade journal.
 
-> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; live CSV validation is recommended before relying on them. See [CHANGELOG.md](CHANGELOG.md) and limitations below.
+> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; live CSV validation is recommended before relying on them.
+
+## Documentation
+
+| Doc | Use when you need… |
+|-----|---------------------|
+| **This file** | Install, run, stop server, Docker, brokers |
+| [DOCKET.md](DOCKET.md) | Roadmap, backlog, v1.0 checklist |
+| [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, Monte Carlo, journal math |
+| [CHANGELOG.md](CHANGELOG.md) | What changed per release |
+| [GITHUB.md](GITHUB.md) | Publish to GitHub (no password in chat — use token/`gh auth`) |
+| [DOCKER.md](DOCKER.md) | Container deploy |
 
 ## Quick start (single click)
 
@@ -47,7 +58,7 @@ python scripts/launch.py
 python -m pytest tests/test_smoke.py -v
 ```
 
-Smoke tests cover OCC/history parsing, FIFO lot matching, `/api/trade-history`, `/api/greeks`, correlation matrix logic, packaging checks, and broker fixtures (**29 tests**).
+Smoke tests cover parsers, APIs, packaging, and broker fixtures (**30 tests**).
 
 ## How it works
 
@@ -58,30 +69,16 @@ Smoke tests cover OCC/history parsing, FIFO lot matching, `/api/trade-history`, 
 ## Project layout
 
 ```
-options-app-final/
+options-app/
 ├── app.py                 # Flask API + Yahoo Finance
 ├── requirements.txt
-├── start.bat / start.sh   # One-click run (uses scripts/launch.py)
-├── stop.bat / stop.sh     # Hard-stop server on port 5000
-├── scripts/
-│   ├── check_env.py       # Python + dependency + layout verifier
-│   ├── launch.py          # Env check, port check, browser, server
-│   ├── setup.ps1 / setup.sh
-│   └── build_exe.ps1      # Optional Windows portable build
-├── Dockerfile             # Container deploy
-├── docker-compose.yml
-├── options-dashboard.spec # PyInstaller spec (optional .exe)
-├── package.json           # Optional frontend bundle (esbuild)
-├── static/
-│   ├── index.html
-│   ├── css/app.css
-│   └── js/                # Ordered classic modules (see static/js/README.md)
-└── tools/
-    ├── build_frontend.mjs   # esbuild bundle + watch
-    ├── frontend-manifest.mjs
-    ├── frontend_scripts.py  # index.html script block helpers
-    ├── split_frontend.py
-    └── rebuild_index.py
+├── start.bat / start.sh   # One-click run
+├── stop.bat / stop.sh     # Hard-stop server
+├── scripts/               # launch, stop, setup, check_env
+├── Dockerfile / docker-compose.yml
+├── static/                # index.html, css/, js/ (12 modules)
+├── tests/                 # Smoke tests + CSV fixtures
+└── tools/                 # Frontend bundle scripts
 ```
 
 ## Docker
@@ -167,4 +164,4 @@ Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown forma
 | Python not found | Install 3.10+ from [python.org](https://python.org) and re-run setup |
 | Docker issues | See [DOCKER.md](DOCKER.md) — port conflicts, `portfolio.db` mount, rebuild |
 
-See [DOCKET.md](DOCKET.md) for backlog, [CHANGELOG.md](CHANGELOG.md) for releases, and [GITHUB.md](GITHUB.md) to publish on GitHub.
+See [DOCKET.md](DOCKET.md) for the roadmap.

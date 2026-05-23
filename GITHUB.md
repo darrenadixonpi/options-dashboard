@@ -20,7 +20,7 @@ The repo includes source code, tests, Docker setup, and docs. These stay **local
 ### 1. Create the empty repo on GitHub
 
 1. Go to [github.com/new](https://github.com/new)
-2. Repository name: e.g. `options-dashboard`
+2. Repository name: e.g. `options-app` or `options-dashboard`
 3. **Private** recommended (personal trading tool)
 4. Do **not** add README, `.gitignore`, or license (this project already has them)
 5. Click **Create repository**
@@ -30,7 +30,7 @@ The repo includes source code, tests, Docker setup, and docs. These stay **local
 Open PowerShell in the project root:
 
 ```powershell
-cd "h:\Documents\AI\Python Projects\options-app-final"
+cd "h:\Documents\AI\Python Projects\options-app"
 
 git remote add origin https://github.com/YOUR_USERNAME/options-dashboard.git
 git branch -M main
@@ -61,7 +61,7 @@ Choose: GitHub.com → HTTPS or SSH → authenticate in the browser.
 ### 2. Create repo and push
 
 ```powershell
-cd "h:\Documents\AI\Python Projects\options-app-final"
+cd "h:\Documents\AI\Python Projects\options-app"
 gh repo create options-dashboard --private --source=. --remote=origin --push
 ```
 

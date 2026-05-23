@@ -10,17 +10,17 @@ No data leaves your machine. The application runs entirely on `localhost`.
 
 ## Architecture
 
-**Backend** (Flask + NumPy + SciPy + pandas + yfinance): All computation happens server-side. The frontend sends parsed position data and receives computed results — it never runs pricing models or statistical calculations itself.
+**Backend** (Flask + NumPy + SciPy + pandas + yfinance): Computation runs server-side. The frontend sends parsed positions and market data; APIs return JSON (greeks, simulation paths, trade history, desk alerts, etc.).
 
-**Frontend** (single-page HTML + vanilla JS + Chart.js): CSV parsing, position reconstruction, and fill matching run in the browser. Rendering is pure DOM manipulation with Chart.js for all visualizations.
+**Frontend** (`static/index.html` + `static/css/app.css` + 12 ordered JS modules under `static/js/`): CSV parsing, position reconstruction, and fill matching run in the browser. Chart.js handles charts; optional production bundle via esbuild (`static/dist/app.bundle.js`).
 
-**Persistence** (SQLite): Portfolio snapshots, closed trade records, custom catalysts, and alert history are stored in `portfolio.db`, created automatically on first run.
+**Persistence:** SQLite (`portfolio.db`) for fetch snapshots, alert event log, and catalysts. Uploaded CSVs and session UI state live in **browser localStorage** until cleared.
 
 ---
 
 ## Pricing Model
 
-All option pricing uses the **Black-Scholes-Merton (BSM) framework** under the following assumptions: European exercise, zero continuous dividend yield, constant volatility, and a constant risk-free rate $r = 0.05$.
+All option pricing uses the **Black-Scholes-Merton (BSM) framework** under the following assumptions: European exercise, zero continuous dividend yield, constant volatility, and a constant risk-free rate $r \approx 0.043$ (see `RISK_FREE` in `app.py`).
 
 Given spot price $S$, strike $K$, risk-free rate $r$, implied volatility $\sigma$ (annualized, in decimal form — e.g. 1.888 for 188.8%), and time to expiry $T$ (in years):
 
@@ -115,7 +115,7 @@ $$S_{t+\Delta t} = S_t \exp\!\Big[\left(\mu - \tfrac{1}{2}\sigma^2\right)\Delta 
 
 Parameters:
 
-- $\mu = r = 0.05$ (risk-neutral drift)
+- $\mu = r \approx 0.043$ (risk-neutral drift)
 - $\sigma$: the ticker's implied volatility in decimal form (e.g. 1.888 for 188.8% IV)
 - $\Delta t = T / n_{\text{steps}}$, with $n_{\text{steps}} = \lceil T \times 252 \rceil$ (one step per trading day)
 - $n_{\text{paths}} = 10{,}000$
@@ -470,10 +470,28 @@ Under log-normal assumptions, approximately 68.2% of outcomes fall within $\pm \
 
 ---
 
+## Desk alerts
+
+After each **Fetch** (and on auto-refresh / marks refresh), the frontend POSTs to `/api/desk-alerts` with positions, market data, greeks, simulation results, marks timestamp, and user thresholds. Rules include:
+
+| Category | Trigger (defaults) |
+|----------|-------------------|
+| **Book Δ / V / Θ** | Portfolio greek vs limit (e.g. \|Δ\| > 500 sh-eq) |
+| **Ticker Δ** | Per-symbol delta concentration |
+| **DTE** | Short legs within 7d (high) or 21d (medium) |
+| **IVR** | Short leg with IV rank ≥ 75% |
+| **Ex-div** | Short calls within 14d of ex-dividend |
+| **Sim P(profit)** | Portfolio or ticker Monte Carlo win rate below floor |
+| **Stale marks** | Option marks older than 15 minutes |
+
+Alerts have stable keys for dismiss persistence (session) and deduped logging to SQLite (`alert_events`). See Positions right rail **⚙** for thresholds.
+
+---
+
 ## Limitations & Assumptions
 
 - **BSM model:** Assumes log-normal returns (geometric Brownian motion), constant volatility, zero dividends, continuous trading, and frictionless markets. Real markets exhibit volatility clustering (GARCH effects), leverage effects, discrete trading, transaction costs, and early exercise optionality (for American options, which are the standard for equity options — BSM prices European options, introducing systematic mispricing for deep ITM options where early exercise is optimal).
-- **Risk-free rate:** Hardcoded at $r = 0.05$. Should be updated if the effective federal funds rate moves materially. The rate impacts put-call parity, cost of carry in delta-hedged positions, and the rho Greek (not currently displayed).
+- **Risk-free rate:** Set in `app.py` as `RISK_FREE ≈ 0.043`. Update if the effective rate moves materially.
 - **Theta projection:** Static-vol, static-spot assumption. In practice, theta is path-dependent: ATM theta follows a $1/\sqrt{T}$ acceleration toward expiry, large price moves shift moneyness (changing the theta regime), and IV changes directly scale the vega-weighted theta contribution. Treat the projection as a premium structure map, not a P&L forecast.
 - **Margin estimation:** Approximates CBOE/Reg-T minimums. Portfolio margin (OCC STANS, a full Monte Carlo VaR at 99.5% over a 2-day horizon with concentration and liquidity charges) produces substantially different — usually lower — requirements for hedged portfolios.
 - **Yahoo Finance data:** Free tier has rate limits (~2,000 requests/hour), occasional stale data (especially for small-cap option chains), and returns NaN for illiquid contracts. The application handles NaN via `pd.notna()` checks, but data quality depends entirely on yfinance.
