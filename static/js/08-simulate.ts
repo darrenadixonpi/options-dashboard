@@ -1,3 +1,5 @@
+/// <reference path="./types.ts" />
+// @ts-nocheck — Phase 3 pilot: transpiled by esbuild; strict checks land module-by-module.
 // ═══════════════════════════════════════════════════════════════════════════
 // Simulation
 // ═══════════════════════════════════════════════════════════════════════════
@@ -353,7 +355,7 @@ function wirePnlHistRangeControls() {
   });
 }
 
-function renderPortfolioPnlChart(data, rangeMode, opts = {}) {
+function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts: { fromSlider?: boolean } = {}) {
   const p = data.portfolio;
   const h = data.histogram;
   const needsFocus = pnlHistNeedsFocus(p);
@@ -455,7 +457,7 @@ function renderPortfolioPnlChart(data, rangeMode, opts = {}) {
     `Mean: ${fmtDollar(p.mean)} · Median: ${fmtDollar(p.median)} · P5: ${fmtDollar(p.p5)} · P95: ${fmtDollar(p.p95)} · P(profit): ${p.prob_profit}% · ${data.n_paths?.toLocaleString()} paths${data.correlation ? " · correlated" : ""} · intrinsic at expiry, flat IV per ticker${binSuffix}${tailSuffix}`;
 }
 
-function renderSimResults(data) {
+function renderSimResults(data: SimulateResult) {
   for (const id of Object.keys(chartInstances)) destroyChart(id);
   document.getElementById("sim-results").hidden = false;
   document.getElementById("sim-empty").hidden = true;
@@ -577,6 +579,9 @@ function buildThetaDailyDatasets(groups) {
   }));
 }
 
+/**
+ * @param {ThetaData} theta
+ */
 function renderThetaCharts(theta) {
   document.getElementById("theta-section").hidden = false;
   const dashTheta = document.getElementById("theta-dashboard-summary");

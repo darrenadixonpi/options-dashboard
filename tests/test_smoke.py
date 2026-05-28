@@ -474,9 +474,21 @@ class TestFrontendBundle:
         modules = mod.render_script_block("modules")
         assert modules.count("<script") == 12
         assert "01-parsers.js" in modules
+        assert "05-session-api.js" in modules
         bundle = mod.render_script_block("bundle")
         assert "app.bundle.js" in bundle
         assert "01-parsers.js" not in bundle
+
+    def test_manifest_lists_typescript_modules(self):
+        import json
+        from pathlib import Path
+
+        manifest = Path(__file__).resolve().parent.parent / "static" / "dist" / "manifest.json"
+        if not manifest.is_file():
+            pytest.skip("bundle not built — run npm run build")
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        assert "05-session-api" in data.get("tsModules", [])
+        assert "08-simulate" in data.get("tsModules", [])
 
     def test_index_bundle_mode(self, client, monkeypatch):
         from pathlib import Path

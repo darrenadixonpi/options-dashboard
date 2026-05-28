@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "strict": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": false
+  },
+  "include": [
+    "static/js/types.ts",
+    "static/js/05-session-api.ts",
+    "static/js/08-simulate.ts"
+  ],
+  "exclude": ["static/dist/**", "node_modules/**"]
+}

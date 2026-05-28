@@ -1,4 +1,7 @@
-function rehydratePositions(positions) {
+/// <reference path="./types.ts" />
+// @ts-nocheck — Phase 3 pilot: transpiled by esbuild; strict checks land module-by-module.
+
+function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
   return (positions || []).map(p => ({
     ...p,
     expiry: p.expiry ? new Date(p.expiry) : null,
@@ -23,7 +26,7 @@ function rehydratePortfolio(portfolio) {
   };
 }
 
-async function fetchJson(url, options) {
+async function fetchJson(url: string, options?: RequestInit): Promise<FetchJsonResult> {
   const res = await fetch(url, options);
   const text = await res.text();
   try {

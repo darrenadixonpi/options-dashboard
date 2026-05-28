@@ -18,13 +18,10 @@ if ! command -v "$PYTHON" >/dev/null 2>&1 && [ ! -x ".venv/bin/python" ]; then
   exit 1
 fi
 
-if ! "$PYTHON" scripts/check_env.py; then
-  echo "Installing dependencies..."
-  "$PYTHON" -m pip install -r requirements.txt
-  "$PYTHON" scripts/check_env.py || {
-    echo "Setup failed. Try: bash scripts/setup.sh"
-    exit 1
-  }
+if ! "$PYTHON" scripts/prep_before_start.py; then
+  echo "Prep failed. Try: bash scripts/setup.sh"
+  echo "Or fast start: OD_SKIP_PREP=1 ./start.sh"
+  exit 1
 fi
 echo ""
 echo "  Stop later: ./stop.sh  (or Ctrl+C in this window)"

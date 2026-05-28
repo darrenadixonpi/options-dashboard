@@ -1,7 +1,6 @@
 /**
- * esbuild bundle (#7): concat ordered classic scripts → single IIFE bundle.
- * Dev/default: index.html loads individual files (fast iteration, shared globals).
- * Prod: npm run build → static/dist/app.bundle.js (+ optional index sync / USE_JS_BUNDLE).
+ * esbuild bundle: concat ordered classic scripts (JS + TS) → single IIFE bundle.
+ * TypeScript modules (.ts) are transpiled to sibling .js files for dev script tags.
  */
 import crypto from "crypto";
 import esbuild from "esbuild";
@@ -22,16 +21,61 @@ const watch = args.has("--watch");
 const dev = args.has("--dev");
 const syncIndex = args.has("--sync-index") || args.has("--prod");
 
-function readOrderedSources() {
-  return MODULE_ORDER.map((file) => {
-    const filePath = path.join(jsDir, file);
-    if (!fs.existsSync(filePath)) throw new Error(`Missing ${file}`);
-    return fs.readFileSync(filePath, "utf8");
-  });
+const TS_MODULES = new Set(
+  MODULE_ORDER.map((name) => name.replace(/\.js$/i, "")).filter((base) =>
+    fs.existsSync(path.join(jsDir, `${base}.ts`))
+  )
+);
+
+function resolveModule(name) {
+  const base = name.replace(/\.js$/i, "");
+  const tsPath = path.join(jsDir, `${base}.ts`);
+  const jsPath = path.join(jsDir, name);
+  if (fs.existsSync(tsPath)) {
+    return { path: tsPath, loader: "ts", outPath: jsPath, name };
+  }
+  if (fs.existsSync(jsPath)) {
+    return { path: jsPath, loader: "js", outPath: jsPath, name };
+  }
+  throw new Error(`Missing module ${name} (no .ts or .js in static/js)`);
 }
 
-function concatSources() {
-  const parts = readOrderedSources();
+async function transpileSource(mod) {
+  const raw = fs.readFileSync(mod.path, "utf8");
+  if (mod.loader === "js") return raw;
+  const result = await esbuild.transform(raw, {
+    loader: "ts",
+    target: "es2020",
+    tsconfigRaw: {
+      compilerOptions: {
+        strict: false,
+        target: "ES2020",
+        lib: ["ES2020", "DOM"],
+      },
+    },
+  });
+  return result.code;
+}
+
+async function emitDevScripts() {
+  for (const name of MODULE_ORDER) {
+    const mod = resolveModule(name);
+    if (mod.loader !== "ts") continue;
+    const code = await transpileSource(mod);
+    fs.writeFileSync(mod.outPath, code);
+  }
+}
+
+async function readOrderedSources() {
+  const parts = [];
+  for (const name of MODULE_ORDER) {
+    parts.push(await transpileSource(resolveModule(name)));
+  }
+  return parts;
+}
+
+async function concatSources() {
+  const parts = await readOrderedSources();
   const banner = `/* Options Dashboard bundle — built ${new Date().toISOString()} */\n`;
   return banner + parts.join("\n;\n");
 }
@@ -45,6 +89,7 @@ function writeManifest() {
     hash,
     builtAt: new Date().toISOString(),
     modules: MODULE_ORDER,
+    tsModules: [...TS_MODULES],
     minified: !dev,
   };
   fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n", "utf8");
@@ -75,7 +120,8 @@ function syncIndexHtml(mode = "bundle") {
 }
 
 async function buildOnce() {
-  const contents = concatSources();
+  await emitDevScripts();
+  const contents = await concatSources();
   fs.mkdirSync(outDir, { recursive: true });
 
   await esbuild.build({
@@ -91,7 +137,8 @@ async function buildOnce() {
 
   const manifest = writeManifest();
   const kb = (manifest.bytes / 1024).toFixed(1);
-  console.log(`Wrote ${path.relative(root, outFile)} (${kb} KB, hash ${manifest.hash})`);
+  const tsNote = manifest.tsModules.length ? `, ${manifest.tsModules.length} TS module(s)` : "";
+  console.log(`Wrote ${path.relative(root, outFile)} (${kb} KB, hash ${manifest.hash}${tsNote})`);
   if (syncIndex) syncIndexHtml("bundle");
   else {
     console.log("Dev index unchanged. For bundled index: npm run index:bundle");
@@ -100,7 +147,7 @@ async function buildOnce() {
 }
 
 async function watchBuild() {
-  console.log("Watching static/js/*.js — rebuild on change (Ctrl+C to stop)");
+  console.log("Watching static/js/*.{js,ts} — rebuild on change (Ctrl+C to stop)");
   let building = false;
   let pending = false;
 
@@ -125,8 +172,17 @@ async function watchBuild() {
 
   await run();
   fs.watch(jsDir, { persistent: true }, (_event, filename) => {
-    if (!filename || !filename.endsWith(".js") || filename === "main.js") return;
-    if (!MODULE_ORDER.includes(filename)) return;
+    if (!filename) return;
+    if (filename === "types.ts" || filename === "globals.d.ts") {
+      console.log(`\n→ ${filename} changed`);
+      run();
+      return;
+    }
+    if (!filename.endsWith(".js") && !filename.endsWith(".ts")) return;
+    const moduleName = filename.endsWith(".ts")
+      ? `${filename.replace(/\.ts$/, "")}.js`
+      : filename;
+    if (!MODULE_ORDER.includes(moduleName)) return;
     console.log(`\n→ ${filename} changed`);
     run();
   });

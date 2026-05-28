@@ -1,0 +1,100 @@
+{
+  "n_paths": 500,
+  "portfolio": {
+    "mean": 120,
+    "median": 100,
+    "p5": -800,
+    "p25": -200,
+    "p75": 400,
+    "p95": 900,
+    "min": -1500,
+    "max": 2000,
+    "prob_profit": 58.2
+  },
+  "by_ticker": {
+    "DEMO": {
+      "mean": 120,
+      "median": 100,
+      "p5": -800,
+      "p25": -200,
+      "p75": 400,
+      "p95": 900,
+      "min": -1500,
+      "max": 2000,
+      "prob_profit": 58.2,
+      "model": "gbm",
+      "reason": "fixture",
+      "price": 100,
+      "iv": 40
+    }
+  },
+  "by_strategy": {
+    "DEMO Short Put": {
+      "mean": 80,
+      "median": 70,
+      "p5": -500,
+      "p25": -100,
+      "p75": 250,
+      "p95": 600,
+      "min": -900,
+      "max": 1200,
+      "prob_profit": 55
+    }
+  },
+  "histogram": {
+    "counts": [5, 8, 12, 15, 20, 18, 14, 8],
+    "edges": [-1500, -1000, -500, -250, 0, 250, 500, 750, 2000]
+  },
+  "portfolio_pnl": [-100, 50, 200, -80, 120],
+  "ticker_histograms": {
+    "DEMO": {
+      "counts": [5, 8, 12, 15, 20, 18, 14, 8],
+      "edges": [-1500, -1000, -500, -250, 0, 250, 500, 750, 2000]
+    }
+  },
+  "ticker_paths": {
+    "DEMO": {
+      "dates": ["May-22", "May-23", "May-24"],
+      "p5": [98, 97.5, 97],
+      "p25": [99, 98.8, 98.5],
+      "p50": [100, 100, 100],
+      "p75": [101, 101.2, 101.5],
+      "p95": [102, 102.5, 103],
+      "mean": [100, 100.1, 100.2],
+      "strikes": [{ "strike": 95, "label": "$95P" }],
+      "breakevens": [],
+      "model": "gbm",
+      "shares": 0,
+      "adjCost": null
+    }
+  },
+  "theta": {
+    "dates": ["May-22", "May-23", "May-24", "May-25"],
+    "groups": [
+      {
+        "label": "Jun 20 '26 (DEMO)",
+        "color": "#e05555",
+        "daily": [15, 14, -12, 10],
+        "expiry": "2026-06-20"
+      },
+      {
+        "label": "Jul 18 '26 (DEMO)",
+        "color": "#00b4b4",
+        "daily": [8, 7, -5, 6],
+        "expiry": "2026-07-18"
+      }
+    ],
+    "totalDaily": [23, 21, -17, 16],
+    "cumulative": [23, 44, 27, 43],
+    "cumulativeNet": [23, 44, 27, 43],
+    "milestones": [],
+    "todayTheta": 23,
+    "todayEarned": 23,
+    "todayCost": -17,
+    "totalCumulative": 43,
+    "totalCumulativeNet": 43,
+    "nextExpiry": "Jun 20",
+    "postNextTheta": 16
+  },
+  "correlation": null
+}

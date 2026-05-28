@@ -18,7 +18,10 @@ jobs:
           cache: pip
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
+
+      - name: pip-audit (dependency vulnerabilities)
+        run: pip-audit -r requirements.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -31,5 +34,38 @@ jobs:
       - name: Build frontend bundle
         run: npm run build
 
+      - name: Typecheck (shared API types)
+        run: npm run typecheck
+
+      - name: Typecheck (Phase 3 pilot modules)
+        run: npm run typecheck:pilot
+
       - name: Run smoke tests
-        run: python -m pytest tests/test_smoke.py -v
+        run: python -m pytest tests/ -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Playwright chart tests
+        run: npm run test:e2e

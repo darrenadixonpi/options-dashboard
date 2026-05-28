@@ -19,11 +19,19 @@ if (-not (Test-Path ".venv")) {
 $py = Join-Path $PWD ".venv\Scripts\python.exe"
 Write-Host "Installing dependencies..."
 & $py -m pip install --upgrade pip
-& $py -m pip install -r requirements.txt
+& $py -m pip install -r requirements-dev.txt
 
 Write-Host ""
 & $py scripts\check_env.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Write-Host ""
+    Write-Host "Installing frontend tooling..."
+    npm install
+    npm run vendor:charts
+    npm run build
+}
 
 Write-Host ""
 Write-Host "Setup complete. Run start.bat or:"

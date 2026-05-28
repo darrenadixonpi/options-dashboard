@@ -9,12 +9,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MIN_PYTHON = (3, 10)
-REQUIRED = ("flask", "yfinance", "numpy", "pandas", "scipy")
+REQUIRED = ("flask", "yfinance", "numpy", "pandas", "scipy", "pydantic")
 REQUIRED_PATHS = (
     "app.py",
+    "api_schemas.py",
     "static/index.html",
     "static/css/app.css",
     "static/js/01-parsers.js",
+    "static/vendor/chart.js/4.4.1/chart.umd.min.js",
+    "static/vendor/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js",
 )
 
 
@@ -72,7 +75,7 @@ def run_checks(*, check_port_flag: bool = False, port: int = 5000, host: str = "
     if errors:
         for err in errors:
             print(f"ERROR: {err}", file=sys.stderr)
-        print("Fix: pip install -r requirements.txt", file=sys.stderr)
+        print("Fix: pip install -r requirements-dev.txt", file=sys.stderr)
         print("Or run scripts/setup.ps1 (Windows) / scripts/setup.sh (macOS/Linux) once.", file=sys.stderr)
         return 1
 

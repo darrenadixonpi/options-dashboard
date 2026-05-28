@@ -9,6 +9,7 @@ const DEFAULT_ALERT_THRESHOLDS = {
   portfolioPProfit: 45, tickerPProfit: 35, marksStaleMin: 15,
   bookDeltaAbs: 500, bookVegaAbs: 2500, tickerDeltaAbs: 300, bookThetaBelow: -500,
 };
+/** @type {AppState} */
 const state = { posText: null, histText: null, rawPosTexts: null, rawHistTexts: null, marketData: null, portfolio: null, positions: [], fills: [], format: "", simDone: false, simResult: null, multiFile: false, viewMode: "ticker", greeks: null, events: null, tradeHistory: null, prevSnapshot: null, fetchedAt: null, optionMarks: null, marksFetchedAt: null, marksNote: null, riskMatrixLoaded: false, simMeta: null, attribution: null, hypothetical: [], whatifEditIndex: null, wiChainCache: {}, lastRiskMatrix: null, deskAlerts: [], alertHistory: [], dismissedAlertKeys: [], alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS }, alertNotifyOnFetch: false, lastAlertNotifyBatch: null, journalSort: { col: "closeDate", dir: "desc" }, journalFilter: "", journalStrategyFilter: "", journalDateFilter: "", journalShowAssignmentLegs: false, simCollapseState: {}, simFocusTicker: null, simScrollY: 0, autoRefresh: { enabled: false, intervalMin: 10 } };
 let simNavObserver = null;
 let autoRefreshTimer = null;

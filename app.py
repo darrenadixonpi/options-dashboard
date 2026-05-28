@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from api_schemas import GreeksResponse, SimulateResponse, validate_response
+
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 rng = np.random.default_rng(42)
 
@@ -581,13 +583,13 @@ def compute_greeks():
         except Exception:
             pass
 
-        return jsonify({
+        return jsonify(validate_response(GreeksResponse, {
             "positions": position_greeks,
             "byTicker": ticker_greeks,
             "portfolio": portfolio_greeks,
             "betaWeighted": beta_weighted,
             "risk": risk,
-        })
+        }))
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -1123,7 +1125,7 @@ def simulate():
             "theta": theta_data,
             "correlation": corr_info,
         }
-        return jsonify(result)
+        return jsonify(validate_response(SimulateResponse, result))
 
     except Exception as e:
         traceback.print_exc()

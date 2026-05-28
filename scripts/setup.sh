@@ -21,10 +21,18 @@ fi
 PY=".venv/bin/python"
 echo "Installing dependencies..."
 "$PY" -m pip install --upgrade pip
-"$PY" -m pip install -r requirements.txt
+"$PY" -m pip install -r requirements-dev.txt
 
 echo ""
 "$PY" scripts/check_env.py
+
+if command -v npm >/dev/null 2>&1; then
+  echo ""
+  echo "Installing frontend tooling..."
+  npm install
+  npm run vendor:charts
+  npm run build
+fi
 
 echo ""
 echo "Setup complete. Run ./start.sh or:"

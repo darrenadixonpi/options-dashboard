@@ -8,9 +8,15 @@
     "build:watch": "node tools/build_frontend.mjs --watch --dev",
     "build:prod": "node tools/build_frontend.mjs --sync-index",
     "index:bundle": "node tools/build_frontend.mjs --sync-index-only",
-    "index:modules": "node tools/build_frontend.mjs --sync-index-only --modules"
+    "index:modules": "node tools/build_frontend.mjs --sync-index-only --modules",
+    "vendor:charts": "node tools/vendor_charts.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:pilot": "tsc -p tsconfig.pilot.json --noEmit",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "@playwright/test": "^1.49.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
   }
 }

@@ -19,19 +19,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Environment check (install deps on first run)
-%PYTHON% scripts\check_env.py
+:: Prep: deps, frontend bundle, typecheck, pytest (skip with OD_SKIP_PREP=1)
+%PYTHON% scripts\prep_before_start.py
 if errorlevel 1 (
     echo.
-    echo Installing dependencies...
-    %PYTHON% -m pip install -r requirements.txt
-    %PYTHON% scripts\check_env.py
-    if errorlevel 1 (
-        echo.
-        echo Setup failed. Try: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
-        pause
-        exit /b 1
-    )
+    echo Prep failed. Try: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+    echo Or fast start: set OD_SKIP_PREP=1 ^& start.bat
+    pause
+    exit /b 1
 )
 echo.
 echo   Stop later: double-click stop.bat  (or Ctrl+C in this window)
