@@ -4,6 +4,13 @@
 // Simulation
 // ═══════════════════════════════════════════════════════════════════════════
 
+let pnlHistPanZoomCleanup = null;
+/** @type {{ startX: number, startLo: number, startHi: number, span: number } | null} */
+let pnlHistPanSession = null;
+/** @type {{ chart: Chart, view: object, stats: object } | null} */
+let pnlHistPanContext = null;
+let pnlHistPanGlobalWired = false;
+
 function enableSimButton() {
   document.getElementById("btn-simulate").disabled = !state.positions.length;
   const inlineSection = document.getElementById("dashboard-sim-section");
@@ -355,7 +362,141 @@ function wirePnlHistRangeControls() {
   });
 }
 
-function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts: { fromSlider?: boolean } = {}) {
+function pnlHistActiveRange(stats, view) {
+  if (state.pnlHistCustom) return { lo: state.pnlHistCustom.lo, hi: state.pnlHistCustom.hi };
+  if (view) return { lo: view.viewLo, hi: view.viewHi };
+  const win = resolvePnlHistWindow(stats, state.pnlHistRange || "full");
+  return { lo: win.viewLo, hi: win.viewHi };
+}
+
+function clampPnlHistRange(stats, lo, hi) {
+  const step = pnlHistStep(stats);
+  const fullSpan = stats.max - stats.min;
+  const coreSpan = Math.max(stats.p95 - stats.p5, step * 4);
+  const minSpan = Math.min(fullSpan, Math.max(step * 8, coreSpan * 0.08, 250));
+  let span = Math.max(minSpan, hi - lo);
+  span = Math.min(fullSpan, span);
+  lo = Math.max(stats.min, lo);
+  hi = Math.min(stats.max, hi);
+  if (hi - lo < span) {
+    const mid = (lo + hi) / 2;
+    lo = mid - span / 2;
+    hi = mid + span / 2;
+  }
+  if (lo < stats.min) { lo = stats.min; hi = Math.min(stats.max, lo + span); }
+  if (hi > stats.max) { hi = stats.max; lo = Math.max(stats.min, hi - span); }
+  return { lo, hi };
+}
+
+function applyPnlHistCustomRange(lo, hi, opts = {}) {
+  if (!state.simResult) return;
+  const stats = state.simResult.portfolio;
+  const r = clampPnlHistRange(stats, lo, hi);
+  state.pnlHistRange = "custom";
+  state.pnlHistCustom = r;
+  renderPortfolioPnlChart(state.simResult, "custom", opts);
+}
+
+function pnlHistDollarAtPixel(chart, view, stats, pixelX) {
+  const xScale = chart.scales.x;
+  const area = chart.chartArea;
+  if (!xScale || !area || area.right <= area.left) return null;
+  const range = pnlHistActiveRange(stats, view);
+  const idx = xScale.getValueForPixel(pixelX);
+  if (idx != null && Number.isFinite(idx) && view.mids?.length) {
+    const i = Math.round(Math.max(0, Math.min(view.mids.length - 1, idx)));
+    if (view.mids[i] != null) return view.mids[i];
+  }
+  const frac = Math.max(0, Math.min(1, (pixelX - area.left) / (area.right - area.left)));
+  return range.lo + frac * (range.hi - range.lo);
+}
+
+function ensurePnlHistPanGlobalHandlers() {
+  if (pnlHistPanGlobalWired) return;
+  pnlHistPanGlobalWired = true;
+
+  window.addEventListener("mousemove", (e) => {
+    if (!pnlHistPanSession || !pnlHistPanContext || !state.simResult) return;
+    const { chart, stats } = pnlHistPanContext;
+    const area = chart.chartArea;
+    if (!area || area.right <= area.left) return;
+    const dx = e.clientX - pnlHistPanSession.startX;
+    const shift = -(dx / (area.right - area.left)) * pnlHistPanSession.span;
+    applyPnlHistCustomRange(
+      pnlHistPanSession.startLo + shift,
+      pnlHistPanSession.startHi + shift,
+      { duringPan: true },
+    );
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!pnlHistPanSession) return;
+    pnlHistPanSession = null;
+    document.getElementById("chart-portfolio")?.classList.remove("od-panzoom-grabbing");
+  });
+}
+
+function wirePnlHistChartPanZoom(chart, view, stats) {
+  pnlHistPanZoomCleanup?.();
+  pnlHistPanZoomCleanup = null;
+  if (!state.simResult?.portfolio_pnl?.length) return;
+
+  const canvas = chart.canvas;
+  if (!canvas) return;
+  pnlHistPanContext = { chart, view, stats };
+  ensurePnlHistPanGlobalHandlers();
+  const step = pnlHistStep(stats);
+
+  function onWheel(e) {
+    e.preventDefault();
+    const range = pnlHistActiveRange(stats, view);
+    const span = range.hi - range.lo;
+    const rect = canvas.getBoundingClientRect();
+    let focal = pnlHistDollarAtPixel(chart, view, stats, e.clientX - rect.left);
+    if (focal == null) focal = (range.lo + range.hi) / 2;
+    const zoomOut = e.deltaY > 0;
+    const factor = zoomOut ? 1.14 : 0.86;
+    let newSpan = span * factor;
+    if (state.pnlHistRange === "full" && !state.pnlHistCustom && !zoomOut) {
+      newSpan = Math.min(span * 0.75, Math.max(stats.p95 - stats.p5, step * 8) * 1.25);
+    }
+    const ratio = span > 0 ? (focal - range.lo) / span : 0.5;
+    let newLo = focal - ratio * newSpan;
+    let newHi = newLo + newSpan;
+    applyPnlHistCustomRange(newLo, newHi);
+  }
+
+  function onDown(e) {
+    if (e.button !== 0) return;
+    const range = pnlHistActiveRange(stats, view);
+    if (range.hi - range.lo >= stats.max - stats.min - step * 2) return;
+    pnlHistPanSession = { startX: e.clientX, startLo: range.lo, startHi: range.hi, span: range.hi - range.lo };
+    canvas.classList.add("od-panzoom-grabbing");
+    e.preventDefault();
+  }
+
+  function onDblClick() {
+    pnlHistPanSession = null;
+    state.pnlHistCustom = null;
+    state.pnlHistRange = pnlHistNeedsFocus(stats) ? "focus" : "full";
+    renderPortfolioPnlChart(state.simResult, state.pnlHistRange);
+  }
+
+  canvas.classList.add("od-panzoom");
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  canvas.addEventListener("mousedown", onDown);
+  canvas.addEventListener("dblclick", onDblClick);
+
+  pnlHistPanZoomCleanup = () => {
+    canvas.removeEventListener("wheel", onWheel);
+    canvas.removeEventListener("mousedown", onDown);
+    canvas.removeEventListener("dblclick", onDblClick);
+    canvas.classList.remove("od-panzoom", "od-panzoom-grabbing");
+    if (!pnlHistPanSession) pnlHistPanContext = null;
+  };
+}
+
+function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts: { fromSlider?: boolean; duringPan?: boolean } = {}) {
   const p = data.portfolio;
   const h = data.histogram;
   const needsFocus = pnlHistNeedsFocus(p);
@@ -366,11 +507,13 @@ function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts:
   if (toggle) {
     toggle.hidden = !needsFocus;
     toggle.querySelectorAll("[data-pnl-range]").forEach(btn => {
-      const isActive = view.mode === "full"
-        ? btn.dataset.pnlRange === "full"
-        : view.mode === "focus"
-          ? btn.dataset.pnlRange === "focus"
-          : false;
+      const isActive = view.mode === "custom"
+        ? false
+        : view.mode === "full"
+          ? btn.dataset.pnlRange === "full"
+          : view.mode === "focus"
+            ? btn.dataset.pnlRange === "focus"
+            : false;
       btn.classList.toggle("active", isActive);
       btn.classList.toggle("btn-ghost", !isActive);
     });
@@ -406,13 +549,24 @@ function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts:
   }
 
   destroyChart("chart-portfolio");
+  if (!opts.duringPan) pnlHistPanZoomCleanup?.();
+
+  const panZoomEnabled = !!(data.portfolio_pnl?.length);
+  const hint = document.getElementById("pnl-hist-panzoom-hint");
+  if (hint) {
+    hint.hidden = !panZoomEnabled;
+    hint.textContent = panZoomEnabled
+      ? "Scroll to zoom the dollar range (re-bins paths) · drag to pan · double-click to reset"
+      : "Re-run simulation to enable scroll/drag range zoom (needs path-level P&L data)";
+  }
+
   chartInstances["chart-portfolio"] = new Chart(document.getElementById("chart-portfolio"), {
     type: "bar",
     data: {
       labels: chartDisp.labels,
       datasets: [{ data: chartDisp.displayCounts, backgroundColor: view.colors, borderWidth: 0 }],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       animation: false,
       plugins: {
@@ -448,13 +602,156 @@ function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts:
           grid: { color: "rgba(255,255,255,0.05)" },
         },
       },
-    },
+    }),
   });
+
+  if (panZoomEnabled) {
+    pnlHistPanContext = { chart: chartInstances["chart-portfolio"], view, stats: p };
+    wirePnlHistChartPanZoom(chartInstances["chart-portfolio"], view, p);
+  }
 
   const binSuffix = view.binNote ? ` · ${view.binNote}` : (!data.portfolio_pnl?.length && view.mode !== "full" ? " · re-run sim for fine zoom" : "");
   const tailSuffix = view.tailNote ? ` · ${view.tailNote}` : "";
   document.getElementById("portfolio-stats").innerHTML =
     `Mean: ${fmtDollar(p.mean)} · Median: ${fmtDollar(p.median)} · P5: ${fmtDollar(p.p5)} · P95: ${fmtDollar(p.p95)} · P(profit): ${p.prob_profit}% · ${data.n_paths?.toLocaleString()} paths${data.correlation ? " · correlated" : ""} · intrinsic at expiry, flat IV per ticker${binSuffix}${tailSuffix}`;
+}
+
+function renderStrategyProfitChart(data: SimulateResult, view: string = "book") {
+  destroyChart("chart-strategies");
+  const canvas = document.getElementById("chart-strategies");
+  if (!canvas) return;
+
+  let labels: string[];
+  let values: number[];
+  if (view === "slices") {
+    labels = Object.keys(data.by_strategy).sort((a, b) => data.by_strategy[a].prob_profit - data.by_strategy[b].prob_profit);
+    values = labels.map(s => data.by_strategy[s].prob_profit);
+    const title = document.getElementById("strategy-chart-title");
+    const note = document.getElementById("strategy-chart-note");
+    if (title) title.textContent = "P(profit) by Expiry Slice";
+    if (note) note.textContent = "Options-only per expiry — labels include share context; equity P&L is in combined book view";
+  } else {
+    labels = Object.keys(data.by_ticker).sort((a, b) => data.by_ticker[a].prob_profit - data.by_ticker[b].prob_profit);
+    values = labels.map(t => data.by_ticker[t].prob_profit);
+    const title = document.getElementById("strategy-chart-title");
+    const note = document.getElementById("strategy-chart-note");
+    if (title) title.textContent = "P(profit) by Ticker (Combined Book)";
+    if (note) note.textContent = "All legs per ticker — shares + every option expiry summed on each Monte Carlo path";
+  }
+
+  chartInstances["chart-strategies"] = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: values.map(v => v >= 50 ? "rgba(76,175,80,0.7)" : "rgba(239,83,80,0.7)"),
+        borderWidth: 0,
+      }],
+    },
+    options: deepMergeChartOpts(chartInteractionDefaults({ axis: "y" }), {
+      indexAxis: "y",
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const v = ctx.raw as number;
+              const key = labels[ctx.dataIndex];
+              if (view === "book" && data.by_ticker[key]) {
+                const st = data.by_ticker[key];
+                return [`P(profit): ${v}%`, `Median P&L: ${fmtDollar(st.median)}`, `Mean: ${fmtDollar(st.mean)}`];
+              }
+              return `P(profit): ${v}%`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { min: 0, max: 100, ticks: { callback: v => v + "%", color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+        y: { ticks: { color: "#e8e8e4", font: { size: 10, family: "'JetBrains Mono'" } }, grid: { display: false } },
+      },
+    }),
+  });
+}
+
+function wirePProfitViewControls(data: SimulateResult) {
+  const wrap = document.getElementById("pprofit-view-toggle");
+  if (!wrap) return;
+  const view = state.simPProfitView || "book";
+  wrap.querySelectorAll("[data-pprofit-view]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.pprofitView === view);
+  });
+  if (wrap.dataset.wired) return;
+  wrap.dataset.wired = "1";
+  wrap.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-pprofit-view]");
+    if (!btn) return;
+    const next = btn.dataset.pprofitView || "book";
+    state.simPProfitView = next;
+    saveSession();
+    wrap.querySelectorAll("[data-pprofit-view]").forEach(b => b.classList.toggle("active", b === btn));
+    renderStrategyProfitChart(data, next);
+  });
+}
+
+function renderSimStickyBar(data) {
+  const p = data.portfolio;
+  const topEl = document.getElementById("sim-results-top");
+  if (!topEl) return;
+  topEl.innerHTML = `
+    <div class="sim-sticky-inner">
+      <nav class="sim-jump-nav" id="sim-jump-nav" aria-label="Simulation sections">
+        <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-results-top">Summary</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-block-portfolio">Portfolio</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="corr-section">Correlation</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-path-layout">Fan charts</button>
+      </nav>
+      <div class="summary">
+        <div class="stat"><div class="stat-label">P(Profit)</div><div class="stat-val">${p.prob_profit}%</div></div>
+        <div class="stat"><div class="stat-label">Mean P&L</div><div class="stat-val">${fmtDollar(p.mean)}</div></div>
+        <div class="stat"><div class="stat-label">Median P&L</div><div class="stat-val">${fmtDollar(p.median)}</div></div>
+        <div class="stat"><div class="stat-label">5th / 95th</div><div class="stat-val" style="font-size:15px">${fmtDollar(p.p5)} / ${fmtDollar(p.p95)}</div></div>
+      </div>
+    </div>`;
+  wireSimJumpNav();
+  syncSimChromeOffset();
+}
+
+function syncSimChromeOffset() {
+  const topEl = document.getElementById("sim-results-top");
+  requestAnimationFrame(() => {
+    const summaryH = topEl?.offsetHeight || 88;
+    document.documentElement.style.setProperty("--sim-chrome-offset", `${56 + summaryH}px`);
+  });
+}
+
+function setSimTickerNavActive(tkr) {
+  const nav = document.getElementById("sim-ticker-nav");
+  if (!nav) return;
+  nav.querySelectorAll("[data-sim-nav]").forEach(b => {
+    const on = b.dataset.simNav === tkr;
+    b.classList.toggle("active", on);
+    if (on) b.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+}
+
+function wireSimTickerNav() {
+  const nav = document.getElementById("sim-ticker-nav");
+  if (!nav || nav.dataset.wired) return;
+  nav.dataset.wired = "1";
+  nav.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sim-nav]");
+    if (!btn) return;
+    const tkr = btn.dataset.simNav;
+    setSimTickerNavActive(tkr);
+    const wrap = document.getElementById(`path-wrap-${tkr}`);
+    if (!wrap) return;
+    wrap.classList.remove("collapsed");
+    setSimChartCollapsed(tkr, false);
+    wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function renderSimResults(data: SimulateResult) {
@@ -471,11 +768,7 @@ function renderSimResults(data: SimulateResult) {
   saveSession();
 
   const p = data.portfolio;
-  document.getElementById("sim-summary").innerHTML = `
-    <div class="stat"><div class="stat-label">P(Profit)</div><div class="stat-val">${p.prob_profit}%</div></div>
-    <div class="stat"><div class="stat-label">Mean P&L</div><div class="stat-val">${fmtDollar(p.mean)}</div></div>
-    <div class="stat"><div class="stat-label">Median P&L</div><div class="stat-val">${fmtDollar(p.median)}</div></div>
-    <div class="stat"><div class="stat-label">5th / 95th</div><div class="stat-val" style="font-size:16px">${fmtDollar(p.p5)} / ${fmtDollar(p.p95)}</div></div>`;
+  renderSimStickyBar(data);
 
   if (!state.pnlHistRange) state.pnlHistRange = pnlHistNeedsFocus(p) ? "focus" : "full";
   wirePnlHistRangeControls();
@@ -486,16 +779,12 @@ function renderSimResults(data: SimulateResult) {
   const tickers = Object.keys(data.by_ticker).sort((a,b) => data.by_ticker[a].median - data.by_ticker[b].median);
   chartInstances["chart-tickers"] = new Chart(document.getElementById("chart-tickers"), {
     type:"bar", data:{labels:tickers.map(t => `${t} (${data.by_ticker[t].model==="merton"?"JD":"GBM"})`),datasets:[{data:tickers.map(t=>data.by_ticker[t].median),backgroundColor:tickers.map(t=>data.by_ticker[t].median>=0?"rgba(76,175,80,0.7)":"rgba(239,83,80,0.7)"),borderWidth:0}]},
-    options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>fmtDollar(v),color:"#9b9b96",font:{size:10}},grid:{color:"rgba(255,255,255,0.05)"}},y:{ticks:{color:"#e8e8e4",font:{size:11,family:"'JetBrains Mono'"}},grid:{display:false}}}}
+    options: deepMergeChartOpts(chartInteractionDefaults({ axis: "y" }), { indexAxis:"y", responsive:true, plugins:{ legend:{ display:false } }, scales:{ x:{ ticks:{ callback:v=>fmtDollar(v), color:"#9b9b96", font:{ size:10 } }, grid:{ color:"rgba(255,255,255,0.05)" } }, y:{ ticks:{ color:"#e8e8e4", font:{ size:11, family:"'JetBrains Mono'" } }, grid:{ display:false } } } }),
   });
 
-  // Strategy chart
-  destroyChart("chart-strategies");
-  const strats = Object.keys(data.by_strategy).sort((a,b) => data.by_strategy[a].prob_profit - data.by_strategy[b].prob_profit);
-  chartInstances["chart-strategies"] = new Chart(document.getElementById("chart-strategies"), {
-    type:"bar", data:{labels:strats,datasets:[{data:strats.map(s=>data.by_strategy[s].prob_profit),backgroundColor:strats.map(s=>data.by_strategy[s].prob_profit>=50?"rgba(76,175,80,0.7)":"rgba(239,83,80,0.7)"),borderWidth:0}]},
-    options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},scales:{x:{min:0,max:100,ticks:{callback:v=>v+"%",color:"#9b9b96",font:{size:10}},grid:{color:"rgba(255,255,255,0.05)"}},y:{ticks:{color:"#e8e8e4",font:{size:10,family:"'JetBrains Mono'"}},grid:{display:false}}}}
-  });
+  // Strategy / combined-book P(profit) chart
+  renderStrategyProfitChart(data, state.simPProfitView || "book");
+  wirePProfitViewControls(data);
 
   // Correlation heatmap (#10)
   if (data.correlation) renderCorrelationHeatmap(data.correlation);
@@ -505,6 +794,7 @@ function renderSimResults(data: SimulateResult) {
 
   // Ticker path charts
   renderTickerPathCharts(data.ticker_paths, data.by_ticker);
+  wireSimJumpNav();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -606,7 +896,7 @@ function renderThetaCharts(theta) {
   chartInstances["chart-theta-daily"] = new Chart(document.getElementById("chart-theta-daily"), {
     type: "bar",
     data: { labels: theta.dates, datasets },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       animation: false,
       plugins: {
@@ -647,41 +937,45 @@ function renderThetaCharts(theta) {
           grid: { color: "rgba(255,255,255,0.05)" },
         },
       },
-    },
+    }),
   });
 
   destroyChart("chart-theta-cumul");
-  const msAnnotations = {};
-  const totalMs = (theta.milestones || []).length;
-  (theta.milestones || []).forEach((m, i) => {
-    // Alternate above/below for consecutive labels
-    const above = i % 2 === 0;
-    // For closely-spaced early milestones, shift them apart
-    let xAdj = 0;
-    if (i > 0 && totalMs > 2) {
-      const prevIdx = theta.milestones[i-1].index;
-      const gap = m.index - prevIdx;
-      if (gap < 20) xAdj = above ? 15 : -15; // nudge apart when close
-    }
-    msAnnotations[`ms_${i}`] = { type: "point", xValue: m.index, yValue: m.value, backgroundColor: "#ffffff", borderColor: "#20c7c7", borderWidth: 2, radius: 4 };
-    msAnnotations[`ms_label_${i}`] = {
-      type: "label", xValue: m.index, yValue: m.value,
-      content: `${m.date}: $${m.value.toLocaleString()}`,
-      position: "center",
-      backgroundColor: "rgba(30,30,28,0.92)", color: "#ffffff",
-      font: { size: 9, family: "JetBrains Mono" }, padding: { x: 4, y: 2 },
-      xAdjust: xAdj, yAdjust: above ? -20 : 20,
-    };
-  });
+  const milestoneByIndex = {};
+  (theta.milestones || []).forEach((m) => { milestoneByIndex[m.index] = m; });
   chartInstances["chart-theta-cumul"] = new Chart(document.getElementById("chart-theta-cumul"), {
     type: "line", data: { labels: theta.dates, datasets: [
-      { label: "Earned (short options)", data: theta.cumulative, borderColor: "#20c7c7", borderWidth: 2, backgroundColor: "rgba(32,199,199,0.1)", fill: true, pointRadius: 0, tension: 0.2 },
-      { label: "Net (incl. long option cost)", data: theta.cumulativeNet, borderColor: "rgba(150,150,150,0.6)", borderWidth: 1.5, borderDash: [5, 3], fill: false, pointRadius: 0, tension: 0.2 },
+      { label: "Earned (short options)", data: theta.cumulative, borderColor: "#20c7c7", borderWidth: 2, backgroundColor: "rgba(32,199,199,0.1)", fill: true, pointRadius: 0, pointHitRadius: 12, tension: 0.2 },
+      { label: "Net (incl. long option cost)", data: theta.cumulativeNet, borderColor: "rgba(150,150,150,0.6)", borderWidth: 1.5, borderDash: [5, 3], fill: false, pointRadius: 0, pointHitRadius: 12, tension: 0.2 },
     ] },
-    options: { responsive: true, animation: false,
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
+      responsive: true,
+      animation: false,
       layout: { padding: { left: 5, right: 15, top: 10, bottom: 5 } },
-      plugins: { legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 10 }, boxWidth: 12, padding: 8 } }, annotation: { annotations: msAnnotations, clip: false } },
-      scales: { x: { ticks: { maxTicksLimit: 12, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } }, y: { ticks: { callback: v => "$" + v.toLocaleString(), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" }, min: 0 } } }
+      plugins: {
+        legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 10 }, boxWidth: 12, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              return items[0]?.label || "";
+            },
+            label(ctx) {
+              return `${ctx.dataset.label}: $${Number(ctx.raw).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+            },
+            afterBody(items) {
+              const idx = items[0]?.dataIndex;
+              const ms = idx != null ? milestoneByIndex[idx] : null;
+              if (!ms) return [];
+              return [`Expiry milestone (${ms.date}): $${ms.value.toLocaleString()}`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 12, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { callback: v => "$" + v.toLocaleString(), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" }, min: 0 },
+      },
+    }),
   });
 }
 
@@ -698,10 +992,7 @@ function jumpToSimTicker(tkr) {
       if (!wrap) return;
       wrap.classList.remove("collapsed");
       setSimChartCollapsed(tkr, false);
-      const nav = document.getElementById("sim-ticker-nav");
-      nav?.querySelectorAll("[data-sim-nav]").forEach(b => {
-        b.classList.toggle("active", b.dataset.simNav === tkr);
-      });
+      setSimTickerNavActive(tkr);
       if (state.simFocusTicker) {
         state.simFocusTicker = null;
         const sel = document.getElementById("sim-focus-select");
@@ -840,16 +1131,31 @@ function renderTickerPathCharts(paths, tickerStats) {
       setSimChartCollapsed(tkr, wrapper.classList.contains("collapsed"));
     });
 
-    const annotations = {};
+    const { yMin, yMax } = estimatePathChartYRange(pd);
+    const lineItems = [];
     (pd.strikes || []).forEach((s, i) => {
       const isEquity = s.isEquity || s.lineType === "basis";
-      annotations[`strike_${i}`] = { type: "line", yMin: s.strike, yMax: s.strike, borderColor: isEquity ? "rgba(255,255,255,0.5)" : "rgba(255,221,87,0.8)", borderWidth: 1, borderDash: isEquity ? [2, 4] : [4, 4], label: { display: true, content: s.label, position: "start", backgroundColor: "rgba(30,30,28,0.8)", color: isEquity ? "#aaaaaa" : "#ffdd57", font: { size: 10, family: "JetBrains Mono" }, padding: 3 } };
+      lineItems.push({
+        key: `strike_${i}`,
+        y: s.strike,
+        content: s.label,
+        kind: isEquity ? "equity" : "strike",
+      });
     });
-    const bePositions = ["start", "end", "start", "end", "start"];
     (pd.breakevens || []).forEach((b, i) => {
-      const colors = { expire: { border: "rgba(100,200,255,0.9)", text: "#64c8ff" }, scenario: { border: "rgba(255,183,77,0.85)", text: "#ffb74d" }, standard: { border: "rgba(136,232,138,0.8)", text: "#88e88a" } };
-      const c = colors[b.beType] || colors.standard;
-      annotations[`be_${i}`] = { type: "line", yMin: b.value, yMax: b.value, borderColor: c.border, borderWidth: b.beType === "expire" ? 2 : 1.5, borderDash: b.beType === "expire" ? [8, 4] : [5, 3], label: { display: true, content: b.label, position: bePositions[i % bePositions.length], backgroundColor: "rgba(30,30,28,0.85)", color: c.text, font: { size: 9, family: "JetBrains Mono" }, padding: 3 } };
+      lineItems.push({
+        key: `be_${i}`,
+        y: b.value,
+        content: b.label,
+        kind: b.beType || "standard",
+      });
+    });
+    const annotations = buildHorizontalLineAnnotations(lineItems, yMin, yMax, (item) => {
+      if (item.kind === "equity") return { borderColor: "rgba(255,255,255,0.5)", borderDash: [2, 4], color: "#aaaaaa" };
+      if (item.kind === "strike") return { borderColor: "rgba(255,221,87,0.8)", borderDash: [4, 4], color: "#ffdd57" };
+      if (item.kind === "expire") return { borderColor: "rgba(100,200,255,0.9)", borderDash: [8, 4], color: "#64c8ff", borderWidth: 2 };
+      if (item.kind === "scenario") return { borderColor: "rgba(255,183,77,0.85)", borderDash: [5, 3], color: "#ffb74d" };
+      return { borderColor: "rgba(136,232,138,0.8)", borderDash: [5, 3], color: "#88e88a" };
     });
     // Event overlays (#8)
     const tkrEvents = state.events?.[tkr] || [];
@@ -874,26 +1180,25 @@ function renderTickerPathCharts(paths, tickerStats) {
         { label: "Median", data: pd.p50, fill: false, borderColor: "#ffffff", borderWidth: 2, pointRadius: 0, tension: 0.3 },
         { label: "Mean", data: pd.mean, fill: false, borderColor: "#f5c518", borderWidth: 1.5, borderDash: [5,3], pointRadius: 0, tension: 0.3 },
       ] },
-      options: { responsive: true, interaction: { mode: "index", intersect: false }, plugins: { legend: { display: false }, annotation: { annotations } },
-        scales: { x: { ticks: { maxTicksLimit: 8, color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.03)" } }, y: { ticks: { callback: v => "$" + v.toFixed(2), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } } } }
+      options: deepMergeChartOpts(chartInteractionDefaults(), {
+        responsive: true,
+        plugins: { legend: { display: false }, annotation: { annotations } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8, color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.03)" } },
+          y: { ticks: { callback: v => "$" + v.toFixed(2), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+        },
+      }),
     });
+    // Ensure chart has layout dimensions even when section starts collapsed
+    if (wrapper.classList.contains("collapsed")) {
+      wrapper.classList.remove("collapsed");
+      chartInstances[canvasId]?.resize?.();
+      wrapper.classList.add("collapsed");
+    }
   }
 
-  if (nav) {
-    nav.querySelectorAll("[data-sim-nav]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        nav.querySelectorAll("[data-sim-nav]").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        const wrap = document.getElementById(`path-wrap-${btn.dataset.simNav}`);
-        if (wrap) {
-          wrap.classList.remove("collapsed");
-          setSimChartCollapsed(btn.dataset.simNav, false);
-          wrap.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      });
-    });
-    setupSimNavScrollSpy();
-  }
+  wireSimTickerNav();
+  setupSimNavScrollSpy();
 
   const tickers = entries.map(([tkr]) => tkr);
   populateSimFocusSelect(tickers);
@@ -934,16 +1239,17 @@ function scrollSimSection(id) {
 }
 
 function wireSimJumpNav() {
+  const top = document.getElementById("sim-results-top");
   const nav = document.getElementById("sim-jump-nav");
-  if (!nav) return;
+  if (!top || !nav) return;
   nav.hidden = false;
   nav.querySelectorAll("[data-sim-jump]").forEach(btn => {
     const target = document.getElementById(btn.dataset.simJump);
     btn.hidden = !!(target && target.hidden);
   });
-  if (nav.dataset.wired) return;
-  nav.dataset.wired = "1";
-  nav.addEventListener("click", (e) => {
+  if (top.dataset.jumpWired) return;
+  top.dataset.jumpWired = "1";
+  top.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-sim-jump]");
     if (!btn) return;
     scrollSimSection(btn.dataset.simJump);

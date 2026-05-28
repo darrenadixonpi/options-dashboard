@@ -222,19 +222,11 @@
       <div class="fetch-log" id="sim-log"></div>
     </div>
     <div id="sim-results" hidden>
-      <div id="sim-results-top"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <nav class="sim-jump-nav" id="sim-jump-nav" hidden aria-label="Simulation sections">
-          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-results-top">Summary</button>
-          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-block-portfolio">Portfolio</button>
-          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="corr-section">Correlation</button>
-          <button type="button" class="btn btn-sm btn-ghost" data-sim-jump="sim-path-layout">Fan charts</button>
-        </nav>
-        <div style="display:flex;gap:8px;margin-left:auto">
+      <div id="sim-results-top" class="sim-sticky-summary"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
         <button class="btn btn-sm btn-ghost" id="btn-export-sim-summary" type="button">Export summary</button>
-        </div>
       </div>
-      <div class="summary" id="sim-summary"></div>
+      <div class="summary" id="sim-summary" hidden aria-hidden="true"></div>
       <div style="display:grid;grid-template-columns:1fr;gap:20px">
         <div class="outer" style="padding:20px" id="sim-block-portfolio">
           <div class="chart-hdr">
@@ -255,6 +247,7 @@
             <button type="button" class="btn btn-sm btn-ghost" id="pnl-hist-preset-p5" title="Reset to P5–P95">P5–P95</button>
             <button type="button" class="btn btn-sm btn-ghost" id="pnl-hist-preset-full" title="Full min–max">Min–Max</button>
           </div>
+          <div id="pnl-hist-panzoom-hint" class="chart-hdr-meta" style="margin-bottom:8px;font-size:10px;color:var(--tx3)">Scroll to zoom the dollar range · drag to pan · double-click to reset</div>
           <canvas id="chart-portfolio" height="200"></canvas>
           <div id="portfolio-stats" style="margin-top:12px;font-size:12px;color:var(--tx2);font-family:var(--mono)"></div>
         </div>
@@ -267,8 +260,17 @@
         </div>
         <div class="outer" style="padding:20px">
           <div class="chart-hdr">
-            <div class="chart-hdr-title">Probability of Profit by Strategy</div>
-            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-strategies" data-export-name="sim-profit-by-strategy" title="Export PNG">PNG</button>
+            <div>
+              <div class="chart-hdr-title" id="strategy-chart-title">P(profit) by Ticker (Combined Book)</div>
+              <div id="strategy-chart-note" class="chart-hdr-meta" style="margin-top:4px;font-size:10px;color:var(--tx3)">All legs per ticker — shares + every option expiry summed on each path</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div id="pprofit-view-toggle" style="display:flex;gap:4px">
+                <button type="button" class="btn btn-sm btn-ghost active" data-pprofit-view="book" title="One P(profit) per ticker, all legs combined">Combined book</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-pprofit-view="slices" title="Options-only P(profit) per expiry slice (labels include share context)">Expiry slices</button>
+              </div>
+              <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-strategies" data-export-name="sim-profit-by-strategy" title="Export PNG">PNG</button>
+            </div>
           </div>
           <canvas id="chart-strategies" height="250"></canvas>
         </div>
@@ -304,8 +306,8 @@
           </div>
         </div>
         <div class="sim-layout" id="sim-path-layout" hidden>
-          <nav class="sim-nav" id="sim-ticker-nav"></nav>
-          <div>
+          <nav class="sim-nav" id="sim-ticker-nav" aria-label="Jump to ticker fan chart"></nav>
+          <div class="sim-path-main">
             <div class="sim-path-toolbar">
               <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-expand-all">Expand all</button>
               <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-collapse-all">Collapse all</button>
@@ -503,6 +505,7 @@
 <script src="/static/js/05-session-api.js"></script>
 <script src="/static/js/06-fetch.js"></script>
 <script src="/static/js/07-tabs.js"></script>
+<script src="/static/js/03-chart-utils.js"></script>
 <script src="/static/js/08-simulate.js"></script>
 <script src="/static/js/09-risk.js"></script>
 <script src="/static/js/10-journal.js"></script>

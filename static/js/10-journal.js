@@ -239,7 +239,7 @@ function renderTradeHistory(data) {
     const rowTip = rollOpenTip || warnTip || rollTip || assignRollTip || (openLeg ? "Jump to open leg" : "Jump to ticker");
     const rowClass = `hist-row-click${t.warnings?.length ? " hist-row-warn" : ""}${t.journalSuppress ? " hist-row-suppressed" : ""}${isRollOpen ? " hist-row-roll-open" : ""}`;
     const rowPrefix = (t.journalSuppress || isRollOpen) ? "↳ " : "";
-    html += `<tr class="${rowClass}" data-hist-ticker="${t.ticker}" data-hist-leg="${openLeg || ""}" title="${esc(rowTip)}"><td>${rowPrefix}${t.ticker}</td><td>${t.instrument === "equity" ? "Stock" : t.optType}</td><td>${esc(normalizeStrategyLabel(t.strategy))}</td><td>${closeLbl}</td><td>${t.openDate}</td><td>${t.closeDate}</td><td>${t.holdDays}</td><td>${t.qty}</td><td style="color:${pnlColor};font-weight:500">${pnlShown}</td><td style="white-space:nowrap">${flags.join(" ")}${openLeg ? '<span style="font-size:10px;color:var(--tx3);margin-left:4px">●</span>' : ""}</td></tr>`;
+    html += `<tr class="${rowClass}" data-hist-ticker="${t.ticker}" data-hist-leg="${openLeg || ""}" data-hist-assign="${t.assignmentRollup ? "1" : ""}" data-hist-close="${t.closeDate || ""}" title="${esc(rowTip)}"><td>${rowPrefix}${t.ticker}</td><td>${t.instrument === "equity" ? "Stock" : t.optType}</td><td>${esc(normalizeStrategyLabel(t.strategy))}</td><td>${closeLbl}</td><td>${t.openDate}</td><td>${t.closeDate}</td><td>${t.holdDays}</td><td>${t.qty}</td><td style="color:${pnlColor};font-weight:500">${pnlShown}</td><td style="white-space:nowrap">${flags.join(" ")}${openLeg ? '<span style="font-size:10px;color:var(--tx3);margin-left:4px">●</span>' : ""}</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById("history-table-container").innerHTML =
@@ -254,7 +254,16 @@ function renderTradeHistory(data) {
     });
   });
   document.querySelectorAll("#history-table-container .hist-row-click").forEach(row => {
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".hist-tip-wrap, .hist-flag")) return;
+      if (row.dataset.histAssign === "1") {
+        state.journalDateFilter = row.dataset.histClose || "";
+        state.journalFilter = row.dataset.histTicker || "";
+        if (state.tradeHistory) renderTradeHistory(state.tradeHistory);
+        const drill = document.getElementById("history-drill-summary");
+        drill?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return;
+      }
       const leg = row.dataset.histLeg;
       if (leg) jumpToLeg(leg);
       else jumpToLeg(null, row.dataset.histTicker);

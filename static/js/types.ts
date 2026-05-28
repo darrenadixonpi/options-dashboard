@@ -132,6 +132,7 @@ declare global {
     simCollapseState: Record<string, boolean>;
     simFocusTicker: string | null;
     simScrollY: number;
+    simPProfitView?: "book" | "slices";
     autoRefresh: { enabled: boolean; intervalMin: number };
     pnlHistRange?: string;
     pnlHistCustom?: { lo: number; hi: number } | null;

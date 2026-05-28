@@ -10,7 +10,7 @@ const DEFAULT_ALERT_THRESHOLDS = {
   bookDeltaAbs: 500, bookVegaAbs: 2500, tickerDeltaAbs: 300, bookThetaBelow: -500,
 };
 /** @type {AppState} */
-const state = { posText: null, histText: null, rawPosTexts: null, rawHistTexts: null, marketData: null, portfolio: null, positions: [], fills: [], format: "", simDone: false, simResult: null, multiFile: false, viewMode: "ticker", greeks: null, events: null, tradeHistory: null, prevSnapshot: null, fetchedAt: null, optionMarks: null, marksFetchedAt: null, marksNote: null, riskMatrixLoaded: false, simMeta: null, attribution: null, hypothetical: [], whatifEditIndex: null, wiChainCache: {}, lastRiskMatrix: null, deskAlerts: [], alertHistory: [], dismissedAlertKeys: [], alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS }, alertNotifyOnFetch: false, lastAlertNotifyBatch: null, journalSort: { col: "closeDate", dir: "desc" }, journalFilter: "", journalStrategyFilter: "", journalDateFilter: "", journalShowAssignmentLegs: false, simCollapseState: {}, simFocusTicker: null, simScrollY: 0, autoRefresh: { enabled: false, intervalMin: 10 } };
+const state = { posText: null, histText: null, rawPosTexts: null, rawHistTexts: null, marketData: null, portfolio: null, positions: [], fills: [], format: "", simDone: false, simResult: null, multiFile: false, viewMode: "ticker", greeks: null, events: null, tradeHistory: null, prevSnapshot: null, fetchedAt: null, optionMarks: null, marksFetchedAt: null, marksNote: null, riskMatrixLoaded: false, simMeta: null, attribution: null, hypothetical: [], whatifEditIndex: null, wiChainCache: {}, lastRiskMatrix: null, deskAlerts: [], alertHistory: [], dismissedAlertKeys: [], alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS }, alertNotifyOnFetch: false, lastAlertNotifyBatch: null, journalSort: { col: "closeDate", dir: "desc" }, journalFilter: "", journalStrategyFilter: "", journalDateFilter: "", journalShowAssignmentLegs: false, simCollapseState: {}, simFocusTicker: null, simScrollY: 0, simPProfitView: "book", autoRefresh: { enabled: false, intervalMin: 10 } };
 let simNavObserver = null;
 let autoRefreshTimer = null;
 let chartInstances = {};
@@ -228,34 +228,44 @@ function exportChartCanvas(canvasId, baseName) {
 }
 
 function exportAllSimPathCharts() {
-  const wraps = [...document.querySelectorAll("#ticker-path-charts .path-chart-wrap")];
-  const saved = wraps.map(w => ({
-    el: w,
-    collapsed: w.classList.contains("collapsed"),
-    focused: w.classList.contains("sim-focused"),
-  }));
-  const layout = document.getElementById("sim-path-layout");
-  const wasFocus = layout?.classList.contains("sim-focus-mode");
+  return (async () => {
+    const wraps = [...document.querySelectorAll("#ticker-path-charts .path-chart-wrap")];
+    const saved = wraps.map(w => ({
+      el: w,
+      collapsed: w.classList.contains("collapsed"),
+      focused: w.classList.contains("sim-focused"),
+    }));
+    const layout = document.getElementById("sim-path-layout");
+    const wasFocus = layout?.classList.contains("sim-focus-mode");
 
-  wraps.forEach(w => w.classList.remove("collapsed", "sim-focused"));
-  if (layout) layout.classList.remove("sim-focus-mode");
+    wraps.forEach(w => w.classList.remove("collapsed", "sim-focused"));
+    if (layout) layout.classList.remove("sim-focus-mode");
 
-  const canvasIds = [...document.querySelectorAll("#ticker-path-charts canvas[id^='path-']")].map(c => c.id);
-  canvasIds.forEach(id => chartInstances[id]?.resize?.());
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-  let count = 0;
-  for (const id of canvasIds) {
-    const tkr = id.replace(/^path-/, "");
-    if (_snapshotChartPng(id, `sim-path-${tkr}`)) count++;
-  }
+    const canvasIds = [...document.querySelectorAll("#ticker-path-charts canvas[id^='path-']")].map(c => c.id);
+    canvasIds.forEach(id => chartInstances[id]?.resize?.());
+    await new Promise(r => setTimeout(r, 80));
 
-  saved.forEach(({ el, collapsed, focused }) => {
-    if (collapsed) el.classList.add("collapsed");
-    if (focused) el.classList.add("sim-focused");
-  });
-  if (wasFocus && layout) layout.classList.add("sim-focus-mode");
-  canvasIds.forEach(id => chartInstances[id]?.resize?.());
-  return count;
+    let count = 0;
+    for (const id of canvasIds) {
+      const tkr = id.replace(/^path-/, "");
+      if (_snapshotChartPng(id, `sim-path-${tkr}`)) count++;
+      await new Promise(r => setTimeout(r, 350));
+    }
+
+    saved.forEach(({ el, collapsed, focused }) => {
+      if (collapsed) el.classList.add("collapsed");
+      if (focused) el.classList.add("sim-focused");
+    });
+    if (wasFocus && layout) layout.classList.add("sim-focus-mode");
+    canvasIds.forEach(id => chartInstances[id]?.resize?.());
+
+    if (count === 0) {
+      alert("Could not export fan charts. Try expanding charts first, then retry.");
+    }
+    return count;
+  })();
 }
 
 /** Inline export button for chart card headers (classic scripts — global HTML helper). */

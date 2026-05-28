@@ -99,11 +99,10 @@ function drawCumulativePnlChart(trades) {
         tension: 0.2,
       }],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       maintainAspectRatio: true,
       animation: false,
-      interaction: { mode: "index", intersect: false, axis: "x" },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -143,7 +142,7 @@ function drawCumulativePnlChart(trades) {
         x: { ticks: { maxTicksLimit: 10, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
         y: { ticks: { callback: v => fmtDollar(v), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
-    },
+    }),
   });
   canvas.style.cursor = series.length ? "pointer" : "default";
   canvas.onclick = (evt) => {
@@ -168,7 +167,9 @@ function setupSimNavScrollSpy() {
     if (!visible.length) return;
     const tkr = visible[0].target.id.replace("path-wrap-", "");
     nav.querySelectorAll("[data-sim-nav]").forEach(b => {
-      b.classList.toggle("active", b.dataset.simNav === tkr);
+      const on = b.dataset.simNav === tkr;
+      b.classList.toggle("active", on);
+      if (on) b.scrollIntoView({ block: "nearest" });
     });
   }, { root: null, rootMargin: "-15% 0px -55% 0px", threshold: [0.1, 0.35, 0.6] });
   wraps.forEach(w => simNavObserver.observe(w));

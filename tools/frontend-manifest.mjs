@@ -7,6 +7,7 @@ export const MODULE_ORDER = [
   "05-session-api.js",
   "06-fetch.js",
   "07-tabs.js",
+  "03-chart-utils.js",
   "08-simulate.js",
   "09-risk.js",
   "10-journal.js",

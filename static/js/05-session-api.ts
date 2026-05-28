@@ -106,13 +106,13 @@ function renderAttribution(data, prevAt) {
         backgroundColor: ["#90caf9","#ce93d8","#f5c518","#a5d6a7","#ffb74d"],
       }],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults({ crosshair: false }), {
       responsive: true, animation: false, plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
         y: { ticks: { callback: v => fmtDollar(v), color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
-    },
+    }),
   });
   let rows = "";
   for (const [tkr, a] of Object.entries(data.byTicker || {}).sort((x, y) => Math.abs(y[1].total) - Math.abs(x[1].total))) {
@@ -464,6 +464,7 @@ function saveSession() {
     simCollapseState: state.simCollapseState,
     simFocusTicker: state.simFocusTicker,
     simScrollY: state.simScrollY,
+    simPProfitView: state.simPProfitView || "book",
     autoRefresh: state.autoRefresh,
     journalShowAssignmentLegs: state.journalShowAssignmentLegs,
   };
@@ -509,6 +510,7 @@ function restoreSession() {
     state.simCollapseState = data.simCollapseState || {};
     state.simFocusTicker = data.simFocusTicker || null;
     state.simScrollY = data.simScrollY || 0;
+    state.simPProfitView = data.simPProfitView || "book";
     state.autoRefresh = data.autoRefresh || { enabled: false, intervalMin: 10 };
     state.journalShowAssignmentLegs = !!data.journalShowAssignmentLegs;
     if (data.broker) {

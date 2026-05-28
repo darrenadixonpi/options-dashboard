@@ -280,9 +280,9 @@ function _renderVolSurfaceChart() {
 
   chartInstances["chart-vol-surface"] = new Chart(document.getElementById("chart-vol-surface"), {
     type: "line", data: { datasets },
-    options: { responsive: true, animation: false, plugins: { legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 9 }, boxWidth: 12, padding: 6 } } },
+    options: deepMergeChartOpts(chartInteractionDefaults(), { responsive: true, animation: false, plugins: { legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 9 }, boxWidth: 12, padding: 6 } } },
       scales: { x: { type: "linear", title: { display: true, text: "Strike", color: "#9b9b96" }, ticks: { color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
-        y: { title: { display: true, text: "IV %", color: "#9b9b96" }, ticks: { callback: v => v + "%", color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } } } }
+        y: { title: { display: true, text: "IV %", color: "#9b9b96" }, ticks: { callback: v => v + "%", color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } } } }),
   });
 }
 

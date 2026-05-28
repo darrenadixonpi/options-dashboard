@@ -150,7 +150,7 @@ function renderAttributionTimeline(snapshots) {
         pointRadius: 2,
       }],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       animation: false,
       plugins: { legend: { display: false } },
@@ -158,7 +158,7 @@ function renderAttributionTimeline(snapshots) {
         x: { ticks: { maxTicksLimit: 8, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
         y: { ticks: { callback: v => fmtDollar(v), color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
-    },
+    }),
   });
 }
 
@@ -185,7 +185,7 @@ function renderGreekTimeline(points) {
         { label: "Book Θ ($/d)", data: points.map(p => p.theta), borderColor: "#f5c518", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
       ],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       animation: false,
       plugins: { legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 9 }, boxWidth: 10 } } },
@@ -193,7 +193,7 @@ function renderGreekTimeline(points) {
         x: { ticks: { maxTicksLimit: 8, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
         y: { ticks: { color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
-    },
+    }),
   });
 }
 
@@ -245,7 +245,7 @@ async function loadTickerSnapshotHistory(ticker) {
         { label: "IV %", data: rows.map(r => r.iv), borderColor: "#ce93d8", borderWidth: 1, pointRadius: 0, yAxisID: "y1" },
       ],
     },
-    options: {
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
       responsive: true,
       animation: false,
       plugins: { legend: { display: true, labels: { color: "#e8e8e4", font: { size: 9 }, boxWidth: 10 } } },
@@ -254,7 +254,7 @@ async function loadTickerSnapshotHistory(ticker) {
         y: { type: "linear", position: "left", ticks: { color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
         y1: { type: "linear", position: "right", ticks: { color: "#9b9b96", font: { size: 9 } }, grid: { drawOnChartArea: false } },
       },
-    },
+    }),
   });
 }
 

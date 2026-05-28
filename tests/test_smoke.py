@@ -34,6 +34,25 @@ class TestOptionParsing:
         expired = _classify_option_event("PUT EXPIRED (X)")
         assert expired["close_type"] == "expired"
 
+    def test_sim_strategy_map_includes_equity_context(self):
+        from app import _build_sim_strategy_map, _pos_strat_key
+        import pandas as pd
+
+        positions = [
+            {"ticker": "RGNX", "posType": "equity", "shares": 500, "contracts": 500, "avgCost": 8.0, "expiry": None},
+            {"ticker": "RGNX", "posType": "option", "optType": "Call", "contracts": -2, "strike": 10.0,
+             "expiry": pd.Timestamp("2026-06-18"), "avgCost": 1.2},
+            {"ticker": "RGNX", "posType": "option", "optType": "Put", "contracts": -1, "strike": 7.5,
+             "expiry": pd.Timestamp("2026-06-18"), "avgCost": 0.8},
+        ]
+        strat_map = _build_sim_strategy_map(positions)
+        call_key = _pos_strat_key(positions[1])
+        put_key = _pos_strat_key(positions[2])
+        assert call_key in strat_map
+        assert put_key in strat_map
+        assert strat_map[call_key] == strat_map[put_key]
+        assert "Shares" in strat_map[call_key] or "Covered" in strat_map[call_key] or "sh" in strat_map[call_key]
+
     def test_fifo_closed_option_trades(self):
         from app import _fifo_closed_option_trades
 
@@ -467,12 +486,13 @@ class TestFrontendBundle:
         order = mod._parse_module_order()
         assert order[0] == "01-parsers.js"
         assert order[-1] == "12-snapshots.js"
-        assert len(order) == 12
+        assert "03-chart-utils.js" in order
+        assert len(order) == 13
 
     def test_render_script_block_modes(self):
         mod = self._load_frontend_scripts()
         modules = mod.render_script_block("modules")
-        assert modules.count("<script") == 12
+        assert modules.count("<script") == 13
         assert "01-parsers.js" in modules
         assert "05-session-api.js" in modules
         bundle = mod.render_script_block("bundle")

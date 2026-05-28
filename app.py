@@ -862,17 +862,7 @@ def simulate():
         ticker_pnl = {}
         strategy_pnl = {}
 
-        strat_groups = {}
-        for p in positions:
-            gk = f"{p['ticker']}|{p['expiry']}"
-            strat_groups.setdefault(gk, []).append(p)
-
-        strat_map = {}
-        for gk, legs in strat_groups.items():
-            label = _classify_legs_py(legs)
-            for p in legs:
-                pk = f"{p['ticker']}|{p['expiry']}|{p['strike']}|{p['optType']}"
-                strat_map[pk] = label
+        strat_map = _build_sim_strategy_map(positions)
 
         tickers_with_adj_equity = set()
         for p in positions:
@@ -909,8 +899,10 @@ def simulate():
 
             all_pnl += pnl
             ticker_pnl[tkr] = ticker_pnl.get(tkr, np.zeros(n_paths)) + pnl
-            pk = f"{p['ticker']}|{p.get('expiry','')}|{p.get('strike','')}|{p.get('optType','')}"
-            sl = strat_map.get(pk)
+            # Options only per expiry slice — equity rolls into by_ticker combined book
+            if p.get("posType") == "equity":
+                continue
+            sl = strat_map.get(_pos_strat_key(p))
             if sl:
                 full_label = f"{tkr} {sl}"
                 strategy_pnl[full_label] = strategy_pnl.get(full_label, np.zeros(n_paths)) + pnl
@@ -1774,6 +1766,50 @@ def _decompose_option_strategies(options):
     labels.extend(put_labels)
     labels.extend(_label_unpaired_options(rem_calls + rem_puts))
     return _join_strategy_labels(labels) if labels else None
+
+
+def _expiry_key(exp):
+    if exp is None or (isinstance(exp, float) and pd.isna(exp)):
+        return "none"
+    if isinstance(exp, pd.Timestamp):
+        return exp.strftime("%Y-%m-%d")
+    return str(exp)[:10]
+
+
+def _pos_strat_key(p):
+    """Position key aligned with frontend detectStrategies map keys."""
+    tkr = p["ticker"]
+    if p.get("posType") == "equity":
+        sh = p.get("shares") or p.get("contracts") or 0
+        return f"{tkr}|equity|{sh}"
+    return f"{tkr}|{_expiry_key(p.get('expiry'))}|{p.get('strike', '')}|{p.get('optType', '')}"
+
+
+def _build_sim_strategy_map(positions):
+    """Mirror frontend detectStrategies — equity context for each expiry bucket."""
+    ticker_groups = defaultdict(list)
+    for p in positions:
+        ticker_groups[p["ticker"]].append(p)
+
+    strat_map = {}
+    for _tkr, all_legs in ticker_groups.items():
+        equity_legs = [l for l in all_legs if l.get("posType") == "equity"]
+        option_legs = [l for l in all_legs if l.get("posType") != "equity"]
+        by_expiry = defaultdict(list)
+        for ol in option_legs:
+            by_expiry[_expiry_key(ol.get("expiry"))].append(ol)
+
+        if not by_expiry and equity_legs:
+            label = _classify_legs_py(equity_legs)
+            for leg in equity_legs:
+                strat_map[_pos_strat_key(leg)] = label
+        else:
+            for _ek, exp_legs in by_expiry.items():
+                combined = list(equity_legs) + exp_legs
+                label = _classify_legs_py(combined)
+                for leg in exp_legs:
+                    strat_map[_pos_strat_key(leg)] = label
+    return strat_map
 
 
 def _classify_legs_py(legs):
