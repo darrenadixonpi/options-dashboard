@@ -35,6 +35,8 @@ async function runSimulation(btn, logEl) {
     allBtns.forEach(b => { b.innerHTML = "<span>🎲</span> <span>Re-run simulation</span>"; b.disabled = false; });
     state.simDone = true;
     state.simResult = data;
+    state.pnlHistRange = pnlHistNeedsFocus(data.portfolio) ? "focus" : "full";
+    state.pnlHistCustom = null;
     renderSimResults(data);
     refreshDeskAlerts();
     saveSession();
@@ -51,6 +53,406 @@ document.getElementById("btn-simulate-inline")?.addEventListener("click", functi
 
 function fmtDollar(x) {
   return Math.abs(x) >= 1000 ? `$${x.toLocaleString("en-US", {maximumFractionDigits: 0})}` : `$${x.toFixed(2)}`;
+}
+
+/** True when min/max tails compress the P5–P95 core into a sliver of the chart. */
+function pnlHistNeedsFocus(stats) {
+  const coreSpan = stats.p95 - stats.p5;
+  if (!(coreSpan > 0) || stats.min == null || stats.max == null) return false;
+  const upperTail = stats.max - stats.p95;
+  const lowerTail = stats.p5 - stats.min;
+  return upperTail > coreSpan * 0.35 || lowerTail > coreSpan * 0.35;
+}
+
+function defaultFocusRange(stats) {
+  const coreSpan = stats.p95 - stats.p5;
+  const pad = Math.max(coreSpan * 0.06, 1);
+  return { lo: stats.p5 - pad, hi: stats.p95 + pad };
+}
+
+function pnlHistStep(stats) {
+  return Math.max(Math.round((stats.max - stats.min) / 400), 1);
+}
+
+function resolvePnlHistWindow(stats, rangeMode) {
+  const step = pnlHistStep(stats);
+  if (rangeMode === "full") {
+    return { lo: stats.min, hi: stats.max, mode: "full", viewLo: stats.min, viewHi: stats.max };
+  }
+  if (rangeMode === "custom" && state.pnlHistCustom) {
+    let lo = Math.min(state.pnlHistCustom.lo, state.pnlHistCustom.hi - step);
+    let hi = Math.max(state.pnlHistCustom.hi, lo + step);
+    lo = Math.max(stats.min, lo);
+    hi = Math.min(stats.max, hi);
+    return { lo, hi, mode: "custom", viewLo: lo, viewHi: hi };
+  }
+  const { lo, hi } = defaultFocusRange(stats);
+  const viewLo = Math.max(stats.min, lo);
+  const viewHi = Math.min(stats.max, hi);
+  return { lo: viewLo, hi: viewHi, mode: "focus", viewLo, viewHi };
+}
+
+function pnlHistBinCount(stats, viewLo, viewHi, mode) {
+  const fullSpan = stats.max - stats.min;
+  const viewSpan = viewHi - viewLo;
+  if (!(viewSpan > 0)) return 60;
+  if (mode === "full" || viewSpan >= fullSpan * 0.995) return 60;
+  const ratio = fullSpan / viewSpan;
+  return Math.min(80, Math.max(24, Math.round(32 * ratio)));
+}
+
+/** Re-bin raw path P&L for [viewLo, viewHi] — finer buckets when zoomed in. */
+function rebinPortfolioPnl(pnl, stats, viewLo, viewHi, mode) {
+  const nBins = pnlHistBinCount(stats, viewLo, viewHi, mode);
+  const width = (viewHi - viewLo) / nBins;
+  if (!(width > 0)) return null;
+
+  let belowCount = 0;
+  let aboveCount = 0;
+  const counts = new Array(nBins).fill(0);
+
+  for (let i = 0; i < pnl.length; i++) {
+    const v = pnl[i];
+    if (v < viewLo) { belowCount++; continue; }
+    if (v > viewHi) { aboveCount++; continue; }
+    let idx = Math.floor((v - viewLo) / width);
+    if (idx >= nBins) idx = nBins - 1;
+    counts[idx]++;
+  }
+
+  const labels = [];
+  const outCounts = [];
+  const colors = [];
+  const mids = [];
+
+  if (mode !== "full" && belowCount > 0) {
+    labels.push(`≤${fmtDollar(viewLo)}`);
+    outCounts.push(belowCount);
+    colors.push("rgba(239,83,80,0.45)");
+    mids.push(viewLo);
+  }
+  for (let i = 0; i < nBins; i++) {
+    if (counts[i] === 0) continue;
+    const lo = viewLo + i * width;
+    const hi = lo + width;
+    const mid = (lo + hi) / 2;
+    labels.push(fmtDollar(mid));
+    outCounts.push(counts[i]);
+    colors.push(mid >= 0 ? "rgba(76,175,80,0.7)" : "rgba(239,83,80,0.7)");
+    mids.push(mid);
+  }
+  if (mode !== "full" && aboveCount > 0) {
+    labels.push(`≥${fmtDollar(viewHi)}`);
+    outCounts.push(aboveCount);
+    colors.push("rgba(76,175,80,0.45)");
+    mids.push(viewHi);
+  }
+
+  return { labels, counts: outCounts, colors, mids, belowCount, aboveCount, nBins, binWidth: width };
+}
+
+function buildPnlHistogramBins(h, stats, rangeMode, portfolioPnl) {
+  const win = resolvePnlHistWindow(stats, rangeMode);
+  const { viewLo, viewHi, mode } = win;
+
+  if (portfolioPnl?.length) {
+    const rebinned = rebinPortfolioPnl(portfolioPnl, stats, viewLo, viewHi, mode);
+    if (rebinned) {
+      const tailPaths = rebinned.belowCount + rebinned.aboveCount;
+      const tailNote = mode !== "full" && tailPaths > 0
+        ? `Range ${fmtDollar(viewLo)} … ${fmtDollar(viewHi)}: ${tailPaths.toLocaleString()} paths outside (full ${fmtDollar(stats.min)} … ${fmtDollar(stats.max)})`
+        : null;
+      const binNote = `${rebinned.nBins} bins · ~${fmtDollar(rebinned.binWidth)} wide`;
+      return {
+        labels: rebinned.labels,
+        counts: rebinned.counts,
+        colors: rebinned.colors,
+        mids: rebinned.mids,
+        xMin: viewLo,
+        xMax: viewHi,
+        viewLo,
+        viewHi,
+        mode,
+        tailNote,
+        binNote,
+        belowCount: rebinned.belowCount,
+        aboveCount: rebinned.aboveCount,
+      };
+    }
+  }
+
+  const edges = h.edges;
+  const counts = h.counts;
+  const bins = [];
+  let belowCount = 0;
+  let aboveCount = 0;
+
+  for (let i = 0; i < counts.length; i++) {
+    const blo = edges[i];
+    const bhi = edges[i + 1];
+    const mid = (blo + bhi) / 2;
+    if (mode !== "full" && mid < viewLo) { belowCount += counts[i]; continue; }
+    if (mode !== "full" && mid > viewHi) { aboveCount += counts[i]; continue; }
+    const clipLo = mode === "full" ? blo : Math.max(blo, viewLo);
+    const clipHi = mode === "full" ? bhi : Math.min(bhi, viewHi);
+    if (clipHi <= clipLo) continue;
+    const midClip = (clipLo + clipHi) / 2;
+    bins.push({
+      lo: clipLo,
+      hi: clipHi,
+      count: counts[i],
+      color: midClip >= 0 ? "rgba(76,175,80,0.7)" : "rgba(239,83,80,0.7)",
+    });
+  }
+
+  const xMin = mode === "full" ? edges[0] : viewLo;
+  const xMax = mode === "full" ? edges[edges.length - 1] : viewHi;
+  const tailPaths = belowCount + aboveCount;
+  const tailNote = mode !== "full" && tailPaths > 0
+    ? `Range ${fmtDollar(viewLo)} … ${fmtDollar(viewHi)}: ${tailPaths.toLocaleString()} paths outside (full ${fmtDollar(stats.min)} … ${fmtDollar(stats.max)})`
+    : null;
+
+  const labels = [];
+  const outCounts = [];
+  const colors = [];
+  const mids = [];
+
+  if (mode !== "full" && belowCount > 0) {
+    labels.push(`≤${fmtDollar(viewLo)}`);
+    outCounts.push(belowCount);
+    colors.push("rgba(239,83,80,0.45)");
+    mids.push(viewLo);
+  }
+  for (const b of bins) {
+    const mid = (b.lo + b.hi) / 2;
+    labels.push(fmtDollar(mid));
+    outCounts.push(b.count);
+    colors.push(b.color);
+    mids.push(mid);
+  }
+  if (mode !== "full" && aboveCount > 0) {
+    labels.push(`≥${fmtDollar(viewHi)}`);
+    outCounts.push(aboveCount);
+    colors.push("rgba(76,175,80,0.45)");
+    mids.push(viewHi);
+  }
+
+  return { labels, counts: outCounts, colors, mids, xMin, xMax, viewLo, viewHi, mode, tailNote, binNote: null, belowCount, aboveCount };
+}
+
+/** Y-axis from in-range bins only; end overflow bars are fixed-height stubs (count in label/tooltip). */
+function pnlHistChartDisplay(view) {
+  const actualCounts = view.counts;
+  const labels = view.labels.slice();
+  const displayCounts = actualCounts.slice();
+
+  let coreStart = 0;
+  let coreEnd = displayCounts.length;
+  const hasLowTail = view.mode !== "full" && view.belowCount > 0;
+  const hasHighTail = view.mode !== "full" && view.aboveCount > 0;
+  if (hasLowTail) coreStart = 1;
+  if (hasHighTail) coreEnd = displayCounts.length - 1;
+
+  const coreCounts = displayCounts.slice(coreStart, coreEnd);
+  const coreMax = coreCounts.length ? Math.max(...coreCounts) : 0;
+  const yMax = coreMax > 0 ? Math.ceil(coreMax * 1.1) : undefined;
+  // Short overflow stubs — never scale with tail path count (avoids misleading the core shape).
+  const tailStub = yMax ? Math.max(Math.round(yMax * 0.1), 2) : 2;
+
+  if (hasLowTail && displayCounts.length) {
+    displayCounts[0] = tailStub;
+    labels[0] = `≤${fmtDollar(view.viewLo)} · ${view.belowCount.toLocaleString()} out`;
+  }
+  if (hasHighTail && displayCounts.length) {
+    const ti = displayCounts.length - 1;
+    displayCounts[ti] = tailStub;
+    labels[ti] = `≥${fmtDollar(view.viewHi)} · ${view.aboveCount.toLocaleString()} out`;
+  }
+
+  return { labels, displayCounts, actualCounts, yMax, hasLowTail, hasHighTail };
+}
+
+function syncPnlHistSliderUi(stats, view, opts = {}) {
+  const wrap = document.getElementById("pnl-hist-slider-wrap");
+  const loEl = document.getElementById("pnl-hist-lo");
+  const hiEl = document.getElementById("pnl-hist-hi");
+  const lbl = document.getElementById("pnl-hist-range-label");
+  if (!wrap || !loEl || !hiEl || !lbl) return;
+
+  wrap.hidden = false;
+  const step = pnlHistStep(stats);
+  for (const el of [loEl, hiEl]) {
+    el.min = stats.min;
+    el.max = stats.max;
+    el.step = step;
+  }
+
+  if (!opts.fromSlider) {
+    loEl.value = view.viewLo;
+    hiEl.value = view.viewHi;
+  }
+
+  lbl.textContent = `${fmtDollar(+loEl.value)} … ${fmtDollar(+hiEl.value)}`;
+  wrap.classList.toggle("is-disabled", view.mode === "full");
+  loEl.disabled = hiEl.disabled = view.mode === "full";
+}
+
+function wirePnlHistRangeControls() {
+  const toggle = document.getElementById("pnl-hist-range-toggle");
+  if (toggle && !toggle.dataset.wired) {
+    toggle.dataset.wired = "1";
+    toggle.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pnl-range]");
+      if (!btn || !state.simResult) return;
+      state.pnlHistRange = btn.dataset.pnlRange;
+      state.pnlHistCustom = null;
+      renderPortfolioPnlChart(state.simResult, state.pnlHistRange);
+    });
+  }
+
+  const wrap = document.getElementById("pnl-hist-slider-wrap");
+  if (!wrap || wrap.dataset.wired) return;
+  wrap.dataset.wired = "1";
+
+  const onSlider = () => {
+    if (!state.simResult) return;
+    const loEl = document.getElementById("pnl-hist-lo");
+    const hiEl = document.getElementById("pnl-hist-hi");
+    const stats = state.simResult.portfolio;
+    const step = pnlHistStep(stats);
+    let lo = +loEl.value;
+    let hi = +hiEl.value;
+    if (lo > hi - step) {
+      if (document.activeElement === loEl) hi = lo + step;
+      else lo = hi - step;
+    }
+    lo = Math.max(stats.min, Math.min(lo, stats.max - step));
+    hi = Math.min(stats.max, Math.max(hi, lo + step));
+    loEl.value = lo;
+    hiEl.value = hi;
+    state.pnlHistRange = "custom";
+    state.pnlHistCustom = { lo, hi };
+    renderPortfolioPnlChart(state.simResult, "custom", { fromSlider: true });
+  };
+
+  document.getElementById("pnl-hist-lo")?.addEventListener("input", onSlider);
+  document.getElementById("pnl-hist-hi")?.addEventListener("input", onSlider);
+
+  document.getElementById("pnl-hist-preset-p5")?.addEventListener("click", () => {
+    if (!state.simResult) return;
+    state.pnlHistRange = "focus";
+    state.pnlHistCustom = null;
+    renderPortfolioPnlChart(state.simResult, "focus");
+  });
+
+  document.getElementById("pnl-hist-preset-full")?.addEventListener("click", () => {
+    if (!state.simResult) return;
+    state.pnlHistRange = "full";
+    state.pnlHistCustom = null;
+    renderPortfolioPnlChart(state.simResult, "full");
+  });
+}
+
+function renderPortfolioPnlChart(data, rangeMode, opts = {}) {
+  const p = data.portfolio;
+  const h = data.histogram;
+  const needsFocus = pnlHistNeedsFocus(p);
+  const mode = rangeMode || state.pnlHistRange || (needsFocus ? "focus" : "full");
+  const view = buildPnlHistogramBins(h, p, mode, data.portfolio_pnl);
+
+  const toggle = document.getElementById("pnl-hist-range-toggle");
+  if (toggle) {
+    toggle.hidden = !needsFocus;
+    toggle.querySelectorAll("[data-pnl-range]").forEach(btn => {
+      const isActive = view.mode === "full"
+        ? btn.dataset.pnlRange === "full"
+        : view.mode === "focus"
+          ? btn.dataset.pnlRange === "focus"
+          : false;
+      btn.classList.toggle("active", isActive);
+      btn.classList.toggle("btn-ghost", !isActive);
+    });
+  }
+
+  syncPnlHistSliderUi(p, view, opts);
+  const chartDisp = pnlHistChartDisplay(view);
+
+  function closestIdx(val) {
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < view.mids.length; i++) {
+      const d = Math.abs(view.mids[i] - val);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  const statLines = [
+    { id: "p5_line", val: p.p5, color: "#ef5350", label: `P5: ${fmtDollar(p.p5)}`, pos: "end" },
+    { id: "mean_line", val: p.mean, color: "#f5c518", label: `Mean: ${fmtDollar(p.mean)}`, pos: "start" },
+    { id: "med_line", val: p.median, color: "#ffffff", label: `Median: ${fmtDollar(p.median)}`, pos: "end" },
+    { id: "p95_line", val: p.p95, color: "#66bb6a", label: `P95: ${fmtDollar(p.p95)}`, pos: "start" },
+  ];
+  const annotations = {};
+  for (const s of statLines) {
+    if (view.mode !== "full" && (s.val < view.viewLo || s.val > view.viewHi)) continue;
+    annotations[s.id] = {
+      type: "line", xMin: closestIdx(s.val), xMax: closestIdx(s.val),
+      borderColor: s.color, borderWidth: 1.5, borderDash: [4, 3],
+      label: { display: true, content: s.label, position: s.pos, yAdjust: 0, backgroundColor: "rgba(30,30,28,0.85)", color: s.color, font: { size: 9, family: "JetBrains Mono" }, padding: 3 },
+    };
+  }
+
+  destroyChart("chart-portfolio");
+  chartInstances["chart-portfolio"] = new Chart(document.getElementById("chart-portfolio"), {
+    type: "bar",
+    data: {
+      labels: chartDisp.labels,
+      datasets: [{ data: chartDisp.displayCounts, backgroundColor: view.colors, borderWidth: 0 }],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        annotation: { annotations },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const i = items[0]?.dataIndex;
+              if (i == null) return "";
+              return chartDisp.labels[i] || "";
+            },
+            label(ctx) {
+              const i = ctx.dataIndex;
+              const n = chartDisp.actualCounts[i];
+              if (n == null) return "";
+              const isTail = (i === 0 && chartDisp.hasLowTail) || (i === chartDisp.actualCounts.length - 1 && chartDisp.hasHighTail);
+              return isTail ? `${n.toLocaleString()} paths outside range` : `${n.toLocaleString()} paths`;
+            },
+          },
+        },
+      },
+      datasets: { bar: { barPercentage: 1, categoryPercentage: 1 } },
+      scales: {
+        x: {
+          ticks: { maxTicksLimit: view.mode === "full" ? 10 : 14, color: "#9b9b96", font: { size: 10 } },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          max: chartDisp.yMax,
+          ticks: { color: "#9b9b96", font: { size: 10 } },
+          grid: { color: "rgba(255,255,255,0.05)" },
+        },
+      },
+    },
+  });
+
+  const binSuffix = view.binNote ? ` · ${view.binNote}` : (!data.portfolio_pnl?.length && view.mode !== "full" ? " · re-run sim for fine zoom" : "");
+  const tailSuffix = view.tailNote ? ` · ${view.tailNote}` : "";
+  document.getElementById("portfolio-stats").innerHTML =
+    `Mean: ${fmtDollar(p.mean)} · Median: ${fmtDollar(p.median)} · P5: ${fmtDollar(p.p5)} · P95: ${fmtDollar(p.p95)} · P(profit): ${p.prob_profit}% · ${data.n_paths?.toLocaleString()} paths${data.correlation ? " · correlated" : ""} · intrinsic at expiry, flat IV per ticker${binSuffix}${tailSuffix}`;
 }
 
 function renderSimResults(data) {
@@ -73,26 +475,9 @@ function renderSimResults(data) {
     <div class="stat"><div class="stat-label">Median P&L</div><div class="stat-val">${fmtDollar(p.median)}</div></div>
     <div class="stat"><div class="stat-label">5th / 95th</div><div class="stat-val" style="font-size:16px">${fmtDollar(p.p5)} / ${fmtDollar(p.p95)}</div></div>`;
 
-  // Portfolio histogram
-  const h = data.histogram;
-  const hMids = h.edges.slice(0,-1).map((e,i) => (e+h.edges[i+1])/2);
-  const hLabels = hMids.map(m => fmtDollar(m));
-  const hColors = hMids.map(m => m>=0 ? "rgba(76,175,80,0.7)" : "rgba(239,83,80,0.7)");
-  function closestIdx(val) { let best=0, bestD=Infinity; for(let i=0;i<hMids.length;i++){const d=Math.abs(hMids[i]-val);if(d<bestD){bestD=d;best=i;}} return best; }
-  const statLines = [
-    {id:"p5_line",val:p.p5,color:"#ef5350",label:`P5: ${fmtDollar(p.p5)}`,pos:"end"},
-    {id:"mean_line",val:p.mean,color:"#f5c518",label:`Mean: ${fmtDollar(p.mean)}`,pos:"start"},
-    {id:"med_line",val:p.median,color:"#ffffff",label:`Median: ${fmtDollar(p.median)}`,pos:"end"},
-    {id:"p95_line",val:p.p95,color:"#66bb6a",label:`P95: ${fmtDollar(p.p95)}`,pos:"start"},
-  ];
-  const annotations = {};
-  for(const s of statLines) annotations[s.id]={type:"line",xMin:closestIdx(s.val),xMax:closestIdx(s.val),borderColor:s.color,borderWidth:1.5,borderDash:[4,3],label:{display:true,content:s.label,position:s.pos,yAdjust:0,backgroundColor:"rgba(30,30,28,0.85)",color:s.color,font:{size:9,family:"JetBrains Mono"},padding:3}};
-
-  chartInstances["chart-portfolio"] = new Chart(document.getElementById("chart-portfolio"), {
-    type:"bar", data:{labels:hLabels,datasets:[{data:h.counts,backgroundColor:hColors,borderWidth:0}]},
-    options:{responsive:true,animation:false,plugins:{legend:{display:false},annotation:{annotations}},scales:{x:{ticks:{maxTicksLimit:10,color:"#9b9b96",font:{size:10}},grid:{display:false}},y:{ticks:{color:"#9b9b96",font:{size:10}},grid:{color:"rgba(255,255,255,0.05)"}}}}
-  });
-  document.getElementById("portfolio-stats").innerHTML = `Mean: ${fmtDollar(p.mean)} · Median: ${fmtDollar(p.median)} · P5: ${fmtDollar(p.p5)} · P95: ${fmtDollar(p.p95)} · P(profit): ${p.prob_profit}% · ${data.n_paths?.toLocaleString()} paths${data.correlation ? " · correlated" : ""} · intrinsic at expiry, flat IV per ticker`;
+  if (!state.pnlHistRange) state.pnlHistRange = pnlHistNeedsFocus(p) ? "focus" : "full";
+  wirePnlHistRangeControls();
+  renderPortfolioPnlChart(data, state.pnlHistRange);
 
   // Per-ticker chart
   destroyChart("chart-tickers");
@@ -151,8 +536,46 @@ function renderCorrelationHeatmap(corrData) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Theta Charts (unchanged from original)
+// Theta Charts — diverging daily stack (short θ up, long θ down)
 // ═══════════════════════════════════════════════════════════════════════════
+
+function thetaDailySymmetricScale(groups, nDays) {
+  let maxUp = 0;
+  let maxDn = 0;
+  for (let i = 0; i < nDays; i++) {
+    let up = 0;
+    let dn = 0;
+    for (const g of groups) {
+      const v = g.daily[i] || 0;
+      if (v >= 0) up += v;
+      else dn += Math.abs(v);
+    }
+    maxUp = Math.max(maxUp, up);
+    maxDn = Math.max(maxDn, dn);
+  }
+  const sym = Math.max(maxUp, maxDn, 1) * 1.08;
+  return { min: -sym, max: sym };
+}
+
+function buildThetaDailyDatasets(groups) {
+  return groups.map(g => ({
+    label: g.label,
+    data: g.daily,
+    backgroundColor: (ctx) => {
+      const v = ctx.raw;
+      if (v == null || v === 0) return "transparent";
+      return v >= 0 ? g.color + "DD" : g.color + "44";
+    },
+    borderColor: (ctx) => {
+      const v = ctx.raw;
+      if (v == null || v >= 0) return "transparent";
+      return g.color;
+    },
+    borderWidth: (ctx) => (ctx.raw < 0 ? 1 : 0),
+    borderDash: (ctx) => (ctx.raw < 0 ? [4, 3] : undefined),
+    borderSkipped: false,
+  }));
+}
 
 function renderThetaCharts(theta) {
   document.getElementById("theta-section").hidden = false;
@@ -173,11 +596,53 @@ function renderThetaCharts(theta) {
   if (cumulTotal) cumulTotal.textContent = `$${theta.totalCumulative.toLocaleString()} total`;
 
   destroyChart("chart-theta-daily");
-  const datasets = theta.groups.map(g => ({ label: g.label, data: g.daily.map(v => Math.max(v, 0)), backgroundColor: g.color + "DD", borderWidth: 0, fill: true }));
+  const yScale = thetaDailySymmetricScale(theta.groups, theta.dates.length);
+  const datasets = buildThetaDailyDatasets(theta.groups);
   chartInstances["chart-theta-daily"] = new Chart(document.getElementById("chart-theta-daily"), {
-    type: "bar", data: { labels: theta.dates, datasets },
-    options: { responsive: true, animation: false, plugins: { legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 10 }, boxWidth: 12, padding: 8 } } },
-      scales: { x: { stacked: true, ticks: { maxTicksLimit: 12, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => "$" + v.toFixed(0), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } } } }
+    type: "bar",
+    data: { labels: theta.dates, datasets },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 10 }, boxWidth: 12, padding: 8 } },
+        annotation: {
+          annotations: {
+            zeroLine: {
+              type: "line",
+              yMin: 0,
+              yMax: 0,
+              borderColor: "rgba(255,255,255,0.35)",
+              borderWidth: 1.5,
+            },
+          },
+        },
+        tooltip: {
+          filter: (item) => item.raw != null && item.raw !== 0,
+          callbacks: {
+            label(ctx) {
+              const v = ctx.raw;
+              const kind = v >= 0 ? "earned" : "cost";
+              return `${ctx.dataset.label}: ${v >= 0 ? "+" : ""}$${Number(v).toFixed(2)}/day (${kind})`;
+            },
+            footer(items) {
+              const sum = items.reduce((s, it) => s + (it.raw || 0), 0);
+              return `Net: ${sum >= 0 ? "+" : ""}$${sum.toFixed(2)}/day`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { maxTicksLimit: 12, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
+        y: {
+          stacked: true,
+          min: yScale.min,
+          max: yScale.max,
+          ticks: { callback: v => (v >= 0 ? "+$" : "−$") + Math.abs(v).toFixed(0), color: "#9b9b96", font: { size: 10 } },
+          grid: { color: "rgba(255,255,255,0.05)" },
+        },
+      },
+    },
   });
 
   destroyChart("chart-theta-cumul");

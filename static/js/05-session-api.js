@@ -427,6 +427,11 @@ function setFetchButtonLoading(loading) {
 
 function saveSession() {
   const brokerBtn = document.querySelector(".broker-btn.active");
+  let simForSave = state.simResult;
+  if (simForSave?.portfolio_pnl) {
+    simForSave = { ...simForSave };
+    delete simForSave.portfolio_pnl;
+  }
   const payload = {
     rawPosTexts: state.rawPosTexts,
     rawHistTexts: state.rawHistTexts || null,
@@ -443,7 +448,7 @@ function saveSession() {
     format: state.format,
     fillsCount: state.fills?.length || 0,
     simDone: state.simDone,
-    simResult: state.simResult,
+    simResult: simForSave,
     simMeta: state.simMeta,
     riskMatrixLoaded: state.riskMatrixLoaded,
     prevSnapshot: state.prevSnapshot,

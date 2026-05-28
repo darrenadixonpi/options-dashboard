@@ -415,6 +415,20 @@ class TestGreeksApi:
         assert len(data["positions"]) == 1
 
 
+class TestSimulateHistogram:
+    def test_portfolio_pnl_payload_shape(self):
+        from app import _histogram
+
+        rng = np.random.default_rng(42)
+        all_pnl = rng.normal(1000, 5000, 1000)
+        h = _histogram(all_pnl, 60)
+        portfolio_pnl = [round(float(x), 2) for x in all_pnl.tolist()]
+        assert len(h["counts"]) == 60
+        assert len(h["edges"]) == 61
+        assert len(portfolio_pnl) == 1000
+        assert portfolio_pnl[0] == round(float(all_pnl[0]), 2)
+
+
 class TestPackaging:
     def _load_check_env(self):
         import importlib.util

@@ -1114,6 +1114,7 @@ def simulate():
                 for label, pnl in sorted(strategy_pnl.items())
             },
             "histogram": _histogram(all_pnl, 60),
+            "portfolio_pnl": [round(float(x), 2) for x in all_pnl.tolist()],
             "ticker_histograms": {
                 tkr: _histogram(pnl, 40)
                 for tkr, pnl in sorted(ticker_pnl.items())
