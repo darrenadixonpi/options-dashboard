@@ -1,6 +1,6 @@
 # Implementation Guide (archived)
 
-The original **pre-v1.0 build specification** lived here while features were being added tier-by-tier. **All items in that spec are now implemented** (v1.0.0).
+The original **pre-v1.0 build specification** lived here while features were being added tier-by-tier. **All items in that spec are implemented** (v1.0.0). **v1.1.0** added Phases 1–3 modernization — see [CHANGELOG.md](CHANGELOG.md).
 
 | Need | Read |
 |------|------|

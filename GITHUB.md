@@ -83,8 +83,8 @@ Setup guide: [GitHub SSH keys](https://docs.github.com/en/authentication/connect
 
 ## After the first push
 
-- **CI** runs automatically (`.github/workflows/ci.yml`) — pytest + frontend build on every push/PR
-- **Releases:** GitHub → **Releases** → **Draft a new release** → tag `v1.0.0`, paste notes from [CHANGELOG.md](CHANGELOG.md)
+- **CI** runs automatically (`.github/workflows/ci.yml`) — pytest, pip-audit, frontend build, typecheck, and Playwright E2E on every push/PR
+- **Releases:** GitHub → **Releases** → **Draft a new release** → tag `v1.1.0`, paste notes from [CHANGELOG.md](CHANGELOG.md)
 - **Clone elsewhere:** `git clone …` then `scripts/setup.ps1` or `./start.sh`
 
 ---

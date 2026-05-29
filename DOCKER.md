@@ -252,4 +252,4 @@ For daily development, use `start.bat` or `./start.sh`. Use Docker when you want
 - `.dockerignore` — keeps image smaller
 - `.env.example` — template for `PORT` and other overrides (copy to `.env`)
 
-See also [README.md](README.md) for general usage, [CHANGELOG.md](CHANGELOG.md) for v1.0 release notes, and [static/js/README.md](static/js/README.md) for frontend bundle details.
+See also [README.md](README.md) for general usage, [CHANGELOG.md](CHANGELOG.md) for release notes, and [static/js/README.md](static/js/README.md) for frontend bundle details.

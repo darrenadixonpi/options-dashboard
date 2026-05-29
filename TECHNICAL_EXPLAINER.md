@@ -12,7 +12,7 @@ No data leaves your machine. The application runs entirely on `localhost`.
 
 **Backend** (Flask + NumPy + SciPy + pandas + yfinance): Computation runs server-side. The frontend sends parsed positions and market data; APIs return JSON (greeks, simulation paths, trade history, desk alerts, etc.).
 
-**Frontend** (`static/index.html` + `static/css/app.css` + 12 ordered JS modules under `static/js/`): CSV parsing, position reconstruction, and fill matching run in the browser. Chart.js handles charts; optional production bundle via esbuild (`static/dist/app.bundle.js`).
+**Frontend** (`static/index.html` + `static/css/app.css` + 13 ordered JS modules under `static/js/`, two authored as TypeScript pilots): CSV parsing, position reconstruction, and fill matching run in the browser. Chart.js (vendored under `static/vendor/`) handles charts; optional production bundle via esbuild (`static/dist/app.bundle.js`).
 
 **Persistence:** SQLite (`portfolio.db`) for fetch snapshots, alert event log, and catalysts. Uploaded CSVs and session UI state live in **browser localStorage** until cleared.
 

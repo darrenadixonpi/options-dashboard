@@ -1,6 +1,6 @@
 # Options Dashboard
 
-**v1.0.0** — Local web app for visualizing your options portfolio with live market data, Greeks, Monte Carlo simulation, and trade journal.
+**v1.1.0** — Local web app for visualizing your options portfolio with live market data, Greeks, Monte Carlo simulation, and trade journal.
 
 > **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; live CSV validation is recommended before relying on them.
 
@@ -9,7 +9,7 @@
 | Doc | Use when you need… |
 |-----|---------------------|
 | **This file** | Install, run, stop server, Docker, brokers |
-| [DOCKET.md](DOCKET.md) | Roadmap, backlog, v1.0 checklist |
+| [DOCKET.md](DOCKET.md) | Roadmap, backlog, release checklist |
 | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, Monte Carlo, journal math |
 | [CHANGELOG.md](CHANGELOG.md) | What changed per release |
 | [GITHUB.md](GITHUB.md) | Publish to GitHub (no password in chat — use token/`gh auth`) |
@@ -24,7 +24,7 @@
 | **Windows** | `powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` | double-click `start.bat` |
 | **macOS / Linux** | `bash scripts/setup.sh` | `./start.sh` |
 
-`start.bat` / `start.sh` verify Python + dependencies, pick `.venv` if present, check that port 5000 is free, open the browser, and start the server at **http://localhost:5000**.
+`start.bat` / `start.sh` verify Python + dependencies, run **`scripts/prep_before_start.py`** (build frontend, typecheck, pytest — skip with `OD_SKIP_PREP=1`), pick `.venv` if present, check that port 5000 is free, open the browser, and start the server at **http://localhost:5000**.
 
 ### CLI options
 
@@ -43,22 +43,30 @@ Environment overrides (see `.env.example`):
 | `PORT` | `5000` | Listen port |
 | `FLASK_DEBUG` | `1` locally, `0` in Docker | Flask debug/reloader |
 | `PORTFOLIO_DB` | `./portfolio.db` | SQLite path |
+| `OD_SKIP_PREP` | unset | Set to `1` to skip prep (build/checks) on start |
+| `OD_FULL_PREP` | unset | Set to `1` to include Playwright e2e in prep |
 
 Manual start:
 
 ```bash
-pip install -r requirements.txt
-python scripts/check_env.py
+pip install -r requirements-dev.txt
+python scripts/prep_before_start.py   # or OD_SKIP_PREP=1 to skip
 python scripts/launch.py
 ```
 
 ## Tests
 
 ```bash
-python -m pytest tests/test_smoke.py -v
+pip install -r requirements-dev.txt
+npm install
+npm run build
+python -m pytest tests/ -q          # 40 tests
+npm run typecheck                   # shared types
+npm run typecheck:pilot             # TS pilot modules
+npm run test:e2e                    # Playwright (optional)
 ```
 
-Smoke tests cover parsers, APIs, packaging, and broker fixtures (**30 tests**).
+Smoke tests cover parsers, APIs, Pydantic schemas, packaging, and broker fixtures.
 
 ## How it works
 
@@ -71,14 +79,17 @@ Smoke tests cover parsers, APIs, packaging, and broker fixtures (**30 tests**).
 ```
 options-app/
 ├── app.py                 # Flask API + Yahoo Finance
+├── api_schemas.py         # Pydantic response validation (simulate, greeks)
 ├── requirements.txt
-├── start.bat / start.sh   # One-click run
+├── requirements-dev.txt   # pytest, pip-audit, dev deps
+├── start.bat / start.sh   # One-click run (includes prep)
 ├── stop.bat / stop.sh     # Hard-stop server
-├── scripts/               # launch, stop, setup, check_env
+├── scripts/               # launch, stop, setup, prep_before_start, check_env
+├── e2e/                   # Playwright chart tests
 ├── Dockerfile / docker-compose.yml
-├── static/                # index.html, css/, js/ (12 modules)
-├── tests/                 # Smoke tests + CSV fixtures
-└── tools/                 # Frontend bundle scripts
+├── static/                # index.html, css/, js/ (13 runtime modules + TS pilot)
+├── tests/                 # Smoke + API schema tests + CSV fixtures
+└── tools/                 # Frontend bundle + vendor scripts
 ```
 
 ## Docker
@@ -93,7 +104,7 @@ docker compose up -d        # background
 
 Open **http://localhost:5000**. Data persists in `portfolio.db` in the project root.
 
-Release: **v1.0.0** — see [CHANGELOG.md](CHANGELOG.md).
+Release: **v1.1.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Optional Windows portable (.exe)
 
@@ -108,19 +119,23 @@ dist\OptionsDashboard\OptionsDashboard.exe --no-browser
 
 ## Frontend bundle (#7)
 
-**Dev (default):** `index.html` loads 12 individual scripts — no build step, instant refresh.
+**Dev (default):** `index.html` loads 13 individual scripts. TypeScript pilot modules (`05-session-api.ts`, `08-simulate.ts`) require **`npm run build`** to emit dev `.js` files — `start.bat` does this automatically.
 
 **Production bundle** (esbuild IIFE, shared global scope preserved):
 
 ```bash
 npm install
-npm run build          # → static/dist/app.bundle.js + manifest.json
+npm run build          # transpile TS + static/dist/app.bundle.js + manifest.json
 npm run build:watch    # rebuild on save (dev: sourcemaps, no minify)
 npm run build:prod     # minified build + patch index.html to bundle mode
 ```
 
 | Command | Purpose |
 |---------|---------|
+| `npm run typecheck` | Check shared types (`types.ts`) |
+| `npm run typecheck:pilot` | Check TS pilot modules |
+| `npm run test:e2e` | Playwright simulate/theta chart tests |
+| `npm run vendor:charts` | Re-download vendored Chart.js |
 | `npm run index:bundle` | Point index.html at the bundle (after `npm run build`) |
 | `npm run index:modules` | Restore individual script tags |
 | `USE_JS_BUNDLE=1` | Flask serves bundle **without** editing index.html (Docker uses this) |
@@ -137,13 +152,14 @@ Module order lives in `tools/frontend-manifest.mjs`. See `static/js/README.md`.
 
 Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
 
-## Known limitations (v1.0)
+## Known limitations
 
 - **Yahoo Finance** — Live prices/IV/marks; subject to rate limits and missing chains
 - **Local only** — No login, no HTTPS, no multi-user; do not expose to the public internet
 - **Journal** — Strategy labels work well for single-leg and same-day spreads; complex multi-day structures may appear as leg-level names
 - **Auto-refresh** — Updates spot, marks, and greeks only; full **Fetch** still required for sim, risk matrix, attribution, and events
 - **Session data** — Uploaded CSVs live in browser localStorage; `portfolio.db` stores server snapshots from fetches
+- **TypeScript** — Pilot only (`05-session-api`, `08-simulate`); remaining modules are JavaScript
 
 ## Keyboard shortcuts
 
@@ -160,7 +176,8 @@ Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown forma
 | Port 5000 in use | `python scripts/stop.py` or double-click `stop.bat`; or `python scripts/launch.py --port 8080` |
 | Server still running after closing browser | Expected — run `stop.bat` or `Ctrl+C` in the server window |
 | Server stuck after closing CMD | Run `stop.bat`; re-start with `start.bat` (reloader disabled by default on Windows) |
-| Missing packages | `pip install -r requirements.txt` or run setup script |
+| Missing packages | `pip install -r requirements-dev.txt` or run setup script |
+| Prep slow on every start | `set OD_SKIP_PREP=1` then `start.bat` (run `npm run build` manually after TS edits) |
 | Python not found | Install 3.10+ from [python.org](https://python.org) and re-run setup |
 | Docker issues | See [DOCKER.md](DOCKER.md) — port conflicts, `portfolio.db` mount, rebuild |
 
