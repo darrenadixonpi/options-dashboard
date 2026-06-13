@@ -77,6 +77,7 @@ def run_checks(*, full: bool) -> None:
         print("  (skipping typecheck — npm not available)")
     else:
         _run(["npm", "run", "typecheck"], label="npm run typecheck")
+        _run(["npm", "run", "typecheck:pilot"], label="npm run typecheck:pilot")
 
     _run([sys.executable, "-m", "pytest", "tests/", "-q"], label="pytest tests/")
 
