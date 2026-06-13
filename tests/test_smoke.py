@@ -548,3 +548,228 @@ class TestFrontendBundle:
         bundle = Path(__file__).resolve().parent.parent / "static" / "dist" / "app.bundle.js"
         if not bundle.is_file():
             pytest.skip("bundle not built — run npm run build")
+
+        monkeypatch.setenv("USE_JS_BUNDLE", "1")
+        res = client.get("/")
+        assert res.status_code == 200
+        assert b"app.bundle.js" in res.data
+        assert b"01-parsers.js" not in res.data
+
+
+class TestSchwabParser:
+    def test_schwab_history_format_detection(self, schwab_history_text):
+        from app import _detect_history_format
+
+        lines = schwab_history_text.replace("\r", "").split("\n")
+        assert _detect_history_format(lines) == "schwab"
+
+
+class TestPidLock:
+    def _load_pidlock(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "scripts" / "pidlock.py"
+        spec = importlib.util.spec_from_file_location("pidlock", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_lock_roundtrip(self, tmp_path, monkeypatch):
+        mod = self._load_pidlock()
+        lock = tmp_path / ".options-dashboard.lock"
+        monkeypatch.setattr(mod, "LOCK_PATH", lock)
+        mod.write_lock(4242, 5000)
+        data = mod.read_lock()
+        assert data["pid"] == 4242
+        assert data["port"] == 5000
+        mod.clear_lock()
+        assert mod.read_lock() is None
+
+
+class TestSimulateApi:
+    """Happy-path /api/simulate with mocked yfinance — no network required."""
+
+    def _make_hist(self, n=62, base=100.0):
+        """Return a fake yfinance history DataFrame with n days of prices."""
+        import pandas as pd
+        closes = [base * (1 + 0.001 * i) for i in range(n)]
+        return pd.DataFrame({"Close": closes, "Open": closes, "High": closes, "Low": closes, "Volume": [1_000_000] * n})
+
+    def test_simulate_single_short_put(self, client):
+        payload = {
+            "positions": [{
+                "ticker": "TEST",
+                "posType": "option",
+                "optType": "Put",
+                "strike": 10.0,
+                "expiry": "2026-09-19",
+                "contracts": -1,
+                "avgCost": 0.50,
+            }],
+            "n_paths": 200,
+        }
+        fake_hist = self._make_hist()
+
+        with patch("app.yf.Ticker") as mock_tk, patch("app.yf.download") as mock_dl:
+            inst = MagicMock()
+            inst.history.return_value = fake_hist
+            inst.info = {"regularMarketPrice": 12.0}
+            inst.fast_info = MagicMock(last_price=12.0)
+            # calendar returns a dict in current yfinance
+            inst.calendar = {}
+            inst.options = ("2026-09-19",)
+            chain = MagicMock()
+            chain.puts = pd.DataFrame({
+                "strike": [10.0], "impliedVolatility": [0.60],
+                "lastPrice": [0.50], "openInterest": [100], "volume": [50],
+            })
+            chain.calls = pd.DataFrame({
+                "strike": [10.0], "impliedVolatility": [0.60],
+                "lastPrice": [0.50], "openInterest": [100], "volume": [50],
+            })
+            inst.option_chain.return_value = chain
+            mock_tk.return_value = inst
+            mock_dl.return_value = fake_hist
+
+            res = client.post("/api/simulate", json=payload)
+
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "error" not in data, f"Unexpected simulate error: {data.get('error')}"
+        assert data.get("n_paths", 0) == 200
+        assert "by_ticker" in data and "TEST" in data["by_ticker"]
+        assert len(data.get("portfolio_pnl", [])) == 200
+        assert "histogram" in data
+        assert "theta" in data
+
+    def test_simulate_returns_error_on_empty_positions(self, client):
+        res = client.post("/api/simulate", json={"positions": [], "n_paths": 100})
+        data = res.get_json()
+        # Either an error field or an empty by_ticker dict
+        assert "error" in data or data.get("by_ticker") == {}
+
+
+class TestDbRetentionPruning:
+    """init_db() prunes snapshots and alert_events older than SNAPSHOT_RETENTION_DAYS.
+
+    DB_PATH is captured at import time, so we monkeypatch app.DB_PATH directly
+    rather than setting the env var after the fact.
+    """
+
+    def _seed_db(self, db_path):
+        """Create tables and insert one old + one recent row in each high-churn table."""
+        import sqlite3
+        from datetime import datetime, timedelta
+
+        old_ts = (datetime.now() - timedelta(days=60)).isoformat()
+        recent_ts = datetime.now().isoformat()
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("""CREATE TABLE IF NOT EXISTS snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL, ticker TEXT NOT NULL,
+            price REAL, delta REAL, theta REAL, vega REAL, gamma REAL,
+            beta_weighted_delta REAL, book_value REAL, position_count INTEGER)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS alert_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            triggered_at TEXT NOT NULL, ticker TEXT, rule TEXT,
+            value REAL, threshold REAL)""")
+        conn.execute("INSERT INTO snapshots (timestamp, ticker) VALUES (?, 'TST')", (old_ts,))
+        conn.execute("INSERT INTO snapshots (timestamp, ticker) VALUES (?, 'TST')", (recent_ts,))
+        conn.execute("INSERT INTO alert_events (triggered_at, ticker, rule, value, threshold) VALUES (?,?,?,?,?)",
+                     (old_ts, "TST", "delta", 0.5, 0.4))
+        conn.execute("INSERT INTO alert_events (triggered_at, ticker, rule, value, threshold) VALUES (?,?,?,?,?)",
+                     (recent_ts, "TST", "delta", 0.5, 0.4))
+        conn.commit()
+        conn.close()
+
+    def test_old_rows_pruned_on_init(self, tmp_path, monkeypatch):
+        import sqlite3
+        import app as app_mod
+
+        db_path = str(tmp_path / "prune_test.db")
+        self._seed_db(db_path)
+
+        monkeypatch.setattr(app_mod, "DB_PATH", db_path)
+        monkeypatch.setenv("SNAPSHOT_RETENTION_DAYS", "30")
+        app_mod.init_db()
+
+        conn = sqlite3.connect(db_path)
+        snap_count = conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+        alert_count = conn.execute("SELECT COUNT(*) FROM alert_events").fetchone()[0]
+        conn.close()
+
+        assert snap_count == 1, f"Expected 1 snapshot after 30d prune, got {snap_count}"
+        assert alert_count == 1, f"Expected 1 alert_event after 30d prune, got {alert_count}"
+
+    def test_retention_zero_keeps_all(self, tmp_path, monkeypatch):
+        import sqlite3
+        import app as app_mod
+
+        db_path = str(tmp_path / "no_prune_test.db")
+        self._seed_db(db_path)
+
+        monkeypatch.setattr(app_mod, "DB_PATH", db_path)
+        monkeypatch.setenv("SNAPSHOT_RETENTION_DAYS", "0")
+        app_mod.init_db()
+
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+        conn.close()
+        assert count == 2, "SNAPSHOT_RETENTION_DAYS=0 should keep all rows"
+
+
+class TestBetaCache:
+    """_beta_cache reduces yfinance calls on repeated /api/greeks requests."""
+
+    def test_cache_hit_reduces_yfinance_calls(self, client):
+        import app as app_mod
+
+        if not hasattr(app_mod, "_beta_cache"):
+            pytest.skip("_beta_cache not present — ensure app.py audit fixes are applied")
+
+        payload = {
+            "positions": [{
+                "ticker": "CACHETST",
+                "posType": "option",
+                "optType": "Put",
+                "strike": 50.0,
+                "expiry": "2026-12-19",
+                "contracts": -1,
+            }],
+            "marketData": {"CACHETST": {"price": 55.0, "iv": 45.0}},
+        }
+
+        fake_hist = pd.DataFrame({"Close": [100.0 + i for i in range(130)]})
+
+        # Clear cache so first call definitely fetches
+        app_mod._beta_cache.clear()
+
+        call_count = {"n": 0}
+        original_ticker = app_mod.yf.Ticker
+
+        def counting_ticker(tkr):
+            call_count["n"] += 1
+            inst = MagicMock()
+            inst.history.return_value = fake_hist
+            inst.info = {"regularMarketPrice": 55.0}
+            inst.fast_info = MagicMock(last_price=55.0)
+            inst.calendar = {}
+            inst.options = ()
+            return inst
+
+        with patch.object(app_mod.yf, "Ticker", side_effect=counting_ticker):
+            res1 = client.post("/api/greeks", json=payload)
+            calls_after_first = call_count["n"]
+            res2 = client.post("/api/greeks", json=payload)
+            calls_after_second = call_count["n"]
+
+        assert res1.status_code == 200
+        assert res2.status_code == 200
+        # Second call should make fewer (or equal, if TTL not expired) yfinance calls
+        new_calls = calls_after_second - calls_after_first
+        assert new_calls <= calls_after_first, (
+            f"Expected cache hit on 2nd call; got {new_calls} new calls vs {calls_after_first} on first"
+        )

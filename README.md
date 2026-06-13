@@ -154,6 +154,25 @@ Module order lives in `tools/frontend-manifest.mjs`. See `static/js/README.md`.
 
 Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
 
+## Backend API (quick reference)
+
+All routes are on `http://localhost:5000` by default.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/version` | `{"name":"options-dashboard","version":"1.1.0"}` |
+| `POST` | `/api/market-data` | Prices + IV for a list of tickers |
+| `POST` | `/api/greeks` | BSM greeks + beta-weighted delta |
+| `POST` | `/api/simulate` | Monte Carlo simulation (GBM or Merton) |
+| `POST` | `/api/events` | Earnings + dividend dates |
+| `POST` | `/api/trade-history` | Parse trade history CSV |
+| `POST` | `/api/roll-analysis` | Roll candidate scoring |
+| `GET/POST` | `/api/catalysts` | Custom catalyst CRUD |
+| `POST` | `/api/snapshots/book` | Save book snapshot |
+| `GET` | `/api/snapshots/history` | Snapshot history |
+
+Full schema validation on `/api/simulate` and `/api/greeks` responses via `api_schemas.py` (Pydantic v2).
+
 ## Known limitations
 
 - **Yahoo Finance** — Live prices/IV/marks; subject to rate limits and missing chains

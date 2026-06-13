@@ -2,6 +2,35 @@
 
 All notable releases of Options Dashboard.
 
+## [Unreleased] — Phase 4 in progress
+
+### Bug fixes
+
+- **Fractional strike parsing** — OCC symbols with Fidelity decimal notation (e.g. `-OVID260618P2.5`) now correctly parse strike=2.5 instead of truncating to 2.0
+- **yfinance calendar API** — `tk.calendar` returns a `dict` in yfinance ≥0.2.x; `_calendar_field()` helper handles both dict and legacy DataFrame forms so dividend and earnings dates are no longer silently `None`
+- **`RISK_FREE`** — now env-overridable (`RISK_FREE=0.037` in `.env`); default updated from 0.043 to 0.037 to match current T-bill rate
+
+### Performance
+
+- **Beta cache** — `/api/greeks` caches per-ticker beta (6 h TTL) and SPY history (15 min TTL); reduces yfinance calls from N+1 per refresh to 0 on cache hit
+- **DB retention** — `init_db()` prunes `snapshots` and `alert_events` older than `SNAPSHOT_RETENTION_DAYS` (default 180) on startup; set to `0` to disable
+
+### API
+
+- **`GET /api/version`** — returns `{"name": "options-dashboard", "version": "1.1.0"}`; reads from `VERSION` file
+
+### UX
+
+- **Position table sort** — A–Z (default), nearest DTE, highest |Δ| (requires greeks), highest IV (requires market data); sort persists across re-fetches
+- **Ticker filter** — text input above positions table; filters by ticker prefix; Escape clears
+- **Loading spinners** — CSS `od-spin` animation on Fetch and Simulate buttons during async operations; subtle pulse overlay on dashboard while re-fetching
+
+### Dev / test
+
+- **Test DB isolation** — `tests/conftest.py` creates a temp DB before `import app` so pytest never writes to the live `portfolio.db`
+- **Regression tests** — `test_parse_occ_symbol_fractional_strike`, `test_calendar_field_dict_and_dataframe`
+- **Prep script parity** — `scripts/prep_before_start.py` now runs `npm run typecheck:pilot` to match CI
+
 ## [1.1.0] — 2026-05-22
 
 Modernization (Phases 1–3) plus Simulation and chart UX improvements.
