@@ -1,5 +1,4 @@
 /// <reference path="./types.ts" />
-// @ts-nocheck — Phase 3 pilot: transpiled by esbuild; strict checks land module-by-module.
 
 function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
   return (positions || []).map(p => ({
@@ -696,4 +695,156 @@ function updateDropZoneHints(broker) {
 
 setupDropZone("dz-positions", "rawPosTexts");
 setupDropZone("dz-history", "rawHistTexts");
+
+// ─── Schwab API connect / sync (Phase 6) ─────────────────────────────────────
+
+async function checkSchwabStatus() {
+  const panel = document.getElementById("schwab-api-panel");
+  if (!panel) return;
+
+  const { ok, data } = await fetchJson("/api/schwab/status");
+  if (!ok || !data) return;
+
+  // Only show the API panel if the backend has credentials configured
+  if (!data.configured) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  const badge = document.getElementById("schwab-status-badge");
+  const connectSection = document.getElementById("schwab-connect-section");
+  const syncSection = document.getElementById("schwab-sync-section");
+
+  if (data.authenticated && !data.needs_reauth) {
+    const ageStr = data.token_age_hours != null ? ` · token ${data.token_age_hours}h old` : "";
+    if (badge) { badge.textContent = "Connected" + ageStr; badge.style.cssText = "font-size:10px;padding:2px 8px;border-radius:10px;background:#1a3a1a;color:#4caf50"; }
+    if (connectSection) connectSection.hidden = true;
+    if (syncSection) syncSection.hidden = false;
+  } else if (data.needs_reauth) {
+    if (badge) { badge.textContent = "Re-auth required"; badge.style.cssText = "font-size:10px;padding:2px 8px;border-radius:10px;background:#3a1a1a;color:#f44336"; }
+    if (connectSection) connectSection.hidden = false;
+    if (syncSection) syncSection.hidden = true;
+    const statusEl = document.getElementById("schwab-sync-status");
+    if (statusEl) statusEl.textContent = "Refresh token expired (7-day Schwab limit). Please reconnect.";
+  } else {
+    if (badge) { badge.textContent = "Not connected"; badge.style.cssText = "font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--tx3)"; }
+    if (connectSection) connectSection.hidden = false;
+    if (syncSection) syncSection.hidden = true;
+  }
+}
+
+async function schwabStartConnect() {
+  const { ok, data } = await fetchJson("/api/schwab/auth/url");
+  if (!ok || !data?.auth_url) {
+    alert(data?.error || "Could not get auth URL. Check that SCHWAB_CLIENT_ID and SCHWAB_CLIENT_SECRET are set in .env.");
+    return;
+  }
+  const link = document.getElementById("schwab-auth-link") as HTMLAnchorElement | null;
+  if (link) link.href = data.auth_url;
+  const callbackSection = document.getElementById("schwab-callback-section");
+  if (callbackSection) callbackSection.hidden = false;
+  // Open auth URL in new tab
+  window.open(data.auth_url, "_blank");
+}
+
+async function schwabSubmitCallback() {
+  const input = document.getElementById("schwab-callback-url") as HTMLInputElement | null;
+  const errEl = document.getElementById("schwab-callback-error");
+  const url = input?.value?.trim();
+  if (!url) { if (errEl) { errEl.textContent = "Paste the full redirect URL first."; errEl.style.display = "block"; } return; }
+  if (errEl) errEl.style.display = "none";
+
+  const btn = document.getElementById("btn-schwab-submit-callback") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  try {
+    const { ok, data } = await fetchJson("/api/schwab/auth/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!ok || data?.error) {
+      if (errEl) { errEl.textContent = data?.error || "Authentication failed."; errEl.style.display = "block"; }
+      return;
+    }
+    // Auth succeeded — refresh UI
+    const callbackSection = document.getElementById("schwab-callback-section");
+    if (callbackSection) callbackSection.hidden = true;
+    if (input) input.value = "";
+    await checkSchwabStatus();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function schwabSync() {
+  const btn = document.getElementById("btn-schwab-sync") as HTMLButtonElement | null;
+  const statusEl = document.getElementById("schwab-sync-status");
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+  if (statusEl) statusEl.textContent = "";
+
+  try {
+    const { ok, data } = await fetchJson("/api/schwab/sync", { method: "POST" });
+    if (!ok || data?.error) {
+      if (statusEl) statusEl.textContent = `Error: ${data?.error || "Sync failed"}`;
+      if (data?.needs_reauth) await checkSchwabStatus();
+      return;
+    }
+    const positions = data.positions || [];
+    if (!positions.length) {
+      if (statusEl) statusEl.textContent = "No positions returned from Schwab.";
+      return;
+    }
+
+    // Load positions into state exactly as a CSV parse would
+    state.positions = positions.map((p: any) => ({
+      ...p,
+      expiry: p.expiry ? new Date(p.expiry) : null,
+    }));
+    state.rawPosTexts = ["__schwab_api__"];  // sentinel so Fetch button enables
+    state.format = "schwab_api";
+    updateFetchButtonState();
+
+    const dz = document.getElementById("dz-positions");
+    if (dz) {
+      dz.classList.add("has-file");
+      const hint = dz.querySelector(".drop-hint");
+      if (hint) hint.textContent = `${positions.length} positions from Schwab API`;
+      const icon = dz.querySelector(".drop-icon");
+      if (icon) icon.textContent = "✓";
+    }
+
+    const syncedAt = data.synced_at ? new Date(data.synced_at).toLocaleTimeString() : "";
+    if (statusEl) statusEl.textContent = `✓ ${positions.length} positions synced at ${syncedAt}`;
+    saveSession();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "↻ Sync positions from Schwab"; }
+  }
+}
+
+async function schwabDisconnect() {
+  if (!confirm("Disconnect Schwab and delete local token?")) return;
+  await fetchJson("/api/schwab/disconnect", { method: "POST" });
+  await checkSchwabStatus();
+}
+
+// Wire Schwab panel buttons
+document.getElementById("btn-schwab-connect")?.addEventListener("click", schwabStartConnect);
+document.getElementById("btn-schwab-submit-callback")?.addEventListener("click", schwabSubmitCallback);
+document.getElementById("btn-schwab-sync")?.addEventListener("click", schwabSync);
+document.getElementById("btn-schwab-disconnect")?.addEventListener("click", schwabDisconnect);
+
+// Show/hide Schwab API panel when Schwab broker is selected
+document.querySelectorAll(".broker-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if ((btn as HTMLElement).dataset.broker === "schwab") {
+      checkSchwabStatus();
+    }
+  });
+});
+
+// Check on initial load if Schwab is already the active broker
+if (document.querySelector(".broker-btn[data-broker='schwab'].active")) {
+  checkSchwabStatus();
+}
 

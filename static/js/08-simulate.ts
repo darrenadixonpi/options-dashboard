@@ -1,5 +1,4 @@
 /// <reference path="./types.ts" />
-// @ts-nocheck — Phase 3 pilot: transpiled by esbuild; strict checks land module-by-module.
 // ═══════════════════════════════════════════════════════════════════════════
 // Simulation
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1250,9 +1249,9 @@ function wireSimJumpNav() {
   if (top.dataset.jumpWired) return;
   top.dataset.jumpWired = "1";
   top.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-sim-jump]");
+    const btn = (e.target as Element).closest("[data-sim-jump]") as HTMLElement | null;
     if (!btn) return;
-    scrollSimSection(btn.dataset.simJump);
+    scrollSimSection(btn.dataset.simJump!);
   });
 }
 

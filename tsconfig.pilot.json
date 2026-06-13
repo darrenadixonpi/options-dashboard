@@ -5,12 +5,14 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "strict": false,
+    "noImplicitAny": false,
     "noEmit": true,
     "skipLibCheck": true,
     "allowJs": false
   },
   "include": [
     "static/js/types.ts",
+    "static/js/03-chart-utils.ts",
     "static/js/05-session-api.ts",
     "static/js/08-simulate.ts"
   ],

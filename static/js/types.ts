@@ -165,20 +165,86 @@ declare global {
     toBase64Image?(type?: string): string;
   }
 
-  const state: AppState;
+  // ─── Global state + chart registry ───────────────────────────────────────
+  const state: AppState & { _journalGroupExpanded?: Record<string, boolean> };
   const chartInstances: Record<string, ChartHandle>;
 
+  // ─── Tab / UI navigation ──────────────────────────────────────────────────
   function switchToTab(tab: string, opts?: { scrollTop?: boolean }): void;
-  function destroyChart(id: string): void;
-  function dateKey(d: Date): string;
-  function renderPortfolio(portfolio: Record<string, unknown>, hasMarket: boolean): void;
-  function refreshDeskAlerts(): void;
-  function saveSession(): void;
-  function jumpToSimTicker(tkr: string): void;
-  function setupSimNavScrollSpy(): void;
+  function scrollSimTabToTop(): void;
+  function openImportDrawer(): void;
+  function closeImportDrawer(): void;
+  function openTickerSearch(): void;
 
-  const Chart: new (
-    ctx: CanvasRenderingContext2D | HTMLCanvasElement,
-    config: Record<string, unknown>
-  ) => ChartHandle;
+  // ─── Formatting helpers ───────────────────────────────────────────────────
+  function fmtDollar(v: number): string;
+  function fmtPct(v: number, decimals?: number): string;
+  function esc(s: string | null | undefined): string;
+  function dateKey(d: Date): string;
+
+  // ─── Portfolio / positions ────────────────────────────────────────────────
+  function renderPortfolio(portfolio: Record<string, unknown>, hasMarket: boolean): void;
+  function jumpToLeg(legKey: string | null, ticker?: string): void;
+  function findOpenLegKey(t: Record<string, unknown>): string | null;
+  function normalizeStrategyLabel(label: string | null | undefined): string;
+
+  // ─── Risk / what-if ───────────────────────────────────────────────────────
+  function loadRiskMatrix(): void;
+  function goToRiskMatrix(): void;
+  function renderWhatIfList(): void;
+  function applyWhatIfGreeks(): Promise<void>;
+  function loadWhatIfExpiries(ticker: string): Promise<void>;
+  function loadWhatIfStrikes(ticker: string, expiry: string, optType: string): Promise<void>;
+  function applyWhatIfStrikeMid(): void;
+  function cancelWhatIfEdit(): void;
+
+  // ─── Alerts / marks ──────────────────────────────────────────────────────
+  function refreshDeskAlerts(opts?: Record<string, unknown>): void;
+  function refreshOptionMarks(): Promise<void>;
+  function refreshLayoutCharts(): void;
+
+  // ─── Journal ─────────────────────────────────────────────────────────────
+  function renderTradeHistory(data: Record<string, unknown>): void;
+  function journalTradePnl(t: Record<string, unknown>): number;
+  function journalVisibleTrades(trades: Record<string, unknown>[]): Record<string, unknown>[];
+  function getFilteredJournalTrades(): Record<string, unknown>[];
+  function getJournalTradesForChart(): Record<string, unknown>[];
+  function buildJournalDailyPnlSeries(trades: Record<string, unknown>[]): Record<string, unknown>[];
+
+  // ─── Simulation ──────────────────────────────────────────────────────────
+  function setupSimNavScrollSpy(): void;
+  function jumpToSimTicker(tkr: string): void;
+
+  // ─── Snapshots ───────────────────────────────────────────────────────────
+  function loadSnapshotHistoryUI(): void;
+  function refreshCumulativePnlChart(): void;
+
+  // ─── Session ─────────────────────────────────────────────────────────────
+  function saveSession(): void;
+  function destroyChart(id: string): void;
+
+  // ─── Chart utils (03-chart-utils.ts) ─────────────────────────────────────
+  function chartInteractionDefaults(opts?: {
+    axis?: "x" | "y";
+    crosshair?: boolean;
+    extra?: Record<string, any>;
+  }): Record<string, any>;
+  function deepMergeChartOpts(a: Record<string, any>, b: Record<string, any>): Record<string, any>;
+  function layoutHorizontalLineLabels(
+    lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
+    yMin: number, yMax: number
+  ): Array<{ y: number; position?: string; yAdjust?: number; [k: string]: any }>;
+  function buildHorizontalLineAnnotations(
+    lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
+    yMin: number, yMax: number,
+    styleFor: (item: any) => any
+  ): Record<string, any>;
+  function estimatePathChartYRange(pd: {
+    p5?: number[]; p95?: number[]; p50?: number[];
+    strikes?: Array<{ strike: number }>;
+    breakevens?: Array<{ value: number }>;
+  }): { yMin: number; yMax: number };
+
+  // ─── Chart.js global ─────────────────────────────────────────────────────
+  const Chart: any;
 }
