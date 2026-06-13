@@ -4351,6 +4351,7 @@ def api_version():
 
 from schwab_client import SchwabAuthError, SchwabApiError, get_schwab_client
 from tax_lots import compute_tax_lots, export_8949_csv
+from brokers import get_adapter, list_adapters, BrokerError, BrokerNotFound
 
 
 @app.route("/api/schwab/status")
@@ -4418,6 +4419,64 @@ def schwab_disconnect():
     try:
         get_schwab_client().disconnect()
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Broker adapter routes (Phase 7.1) ────────────────────────────────────────
+# Unified, broker-agnostic surface over the brokers/ registry. Adding a broker
+# is "write an adapter + register it" — these routes need no changes.
+
+@app.route("/api/brokers")
+def brokers_list():
+    """List every supported broker and its capabilities (source, oauth, etc.)."""
+    try:
+        return jsonify({"brokers": list_adapters()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/brokers/<key>/status")
+def broker_status(key):
+    """Connection status for one broker. CSV brokers report ready; Schwab delegates to OAuth state."""
+    try:
+        return jsonify(get_adapter(key).status())
+    except BrokerNotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e), "needs_reauth": True}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/brokers/<key>/positions", methods=["POST"])
+def broker_positions(key):
+    """Return canonical legs for a broker.
+
+    Body: { "csv": "<exported CSV text>" } for CSV brokers (Fidelity, IBKR, or a
+    Schwab CSV export). For API brokers (Schwab) with no CSV supplied, pulls live
+    positions via OAuth. Response shape matches /api/schwab/sync so the frontend
+    can pass `positions` straight into buildPortfolio().
+    """
+    try:
+        adapter = get_adapter(key)
+        csv_text = (request.json or {}).get("csv") if request.is_json else None
+        positions = adapter.get_positions(csv_text)
+        return jsonify({
+            "broker": adapter.key,
+            "source": "csv" if (csv_text and csv_text.strip()) else adapter.source,
+            "positions": positions,
+            "position_count": len(positions),
+            "synced_at": datetime.now().isoformat(),
+        })
+    except BrokerNotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e), "needs_reauth": True}), 401
+    except SchwabApiError as e:
+        return jsonify({"error": str(e)}), 502
+    except BrokerError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -5069,3 +5128,4 @@ if __name__ == "__main__":  # pragma: no cover
     print(f"  Open http://{url_host}:{port}")
     print("=" * 50)
     app.run(debug=debug, host=host, port=port, use_reloader=debug)
+# end of app.py

@@ -517,14 +517,15 @@ class TestFrontendBundle:
         mod = self._load_frontend_scripts()
         order = mod._parse_module_order()
         assert order[0] == "01-parsers.js"
-        assert order[-1] == "12-snapshots.js"
+        assert order[-1] == "10-phase7.js"
         assert "03-chart-utils.js" in order
-        assert len(order) == 13
+        assert "12-snapshots.js" in order
+        assert len(order) == 14
 
     def test_render_script_block_modes(self):
         mod = self._load_frontend_scripts()
         modules = mod.render_script_block("modules")
-        assert modules.count("<script") == 13
+        assert modules.count("<script") == 14
         assert "01-parsers.js" in modules
         assert "05-session-api.js" in modules
         bundle = mod.render_script_block("bundle")
@@ -674,14 +675,14 @@ class TestDbRetentionPruning:
             beta_weighted_delta REAL, book_value REAL, position_count INTEGER)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS alert_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            triggered_at TEXT NOT NULL, ticker TEXT, rule TEXT,
-            value REAL, threshold REAL)""")
+            alert_key TEXT NOT NULL, ticker TEXT, category TEXT,
+            severity TEXT, message TEXT NOT NULL, triggered_at TEXT NOT NULL)""")
         conn.execute("INSERT INTO snapshots (timestamp, ticker) VALUES (?, 'TST')", (old_ts,))
         conn.execute("INSERT INTO snapshots (timestamp, ticker) VALUES (?, 'TST')", (recent_ts,))
-        conn.execute("INSERT INTO alert_events (triggered_at, ticker, rule, value, threshold) VALUES (?,?,?,?,?)",
-                     (old_ts, "TST", "delta", 0.5, 0.4))
-        conn.execute("INSERT INTO alert_events (triggered_at, ticker, rule, value, threshold) VALUES (?,?,?,?,?)",
-                     (recent_ts, "TST", "delta", 0.5, 0.4))
+        conn.execute("INSERT INTO alert_events (alert_key, ticker, category, severity, message, triggered_at) VALUES (?,?,?,?,?,?)",
+                     ("delta:TST", "TST", "greeks", "high", "Delta breach", old_ts))
+        conn.execute("INSERT INTO alert_events (alert_key, ticker, category, severity, message, triggered_at) VALUES (?,?,?,?,?,?)",
+                     ("delta:TST", "TST", "greeks", "high", "Delta breach", recent_ts))
         conn.commit()
         conn.close()
 

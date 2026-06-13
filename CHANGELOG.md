@@ -4,6 +4,18 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased] — Phase 7 in progress
 
+### Multi-broker adapter layer (7.1)
+- **`brokers/` package** — a common `BrokerAdapter` interface so every broker (Schwab API, Fidelity CSV, IBKR CSV) plugs in behind one contract and emits the **same canonical leg shape**. Adding a broker is "write an adapter + register it" — no edits to `app.py` core, simulation, greeks, or the journal
+- **`brokers/base.py`** — `BrokerAdapter` ABC, the canonical `normalize_leg()` chokepoint (signed `contracts`/`shares`, ISO expiry coercion, flat-position drop), and `BrokerError`/`BrokerNotFound`
+- **`brokers/csvutil.py`** — dependency-free Python ports of the validated `static/js/01-parsers.js` helpers (`parse_occ` with correct OCC strike padding, Schwab/IBKR option parsing) so the backend reconstructs the same positions as the browser
+- **`brokers/schwab.py`** — `SchwabAdapter` (source `api`) delegates to the existing `schwab_client.py` (single source of truth for OAuth/tokens); also parses Schwab CSV exports
+- **`brokers/fidelity.py` + `brokers/ibkr.py`** — CSV adapters for positions + opening-fill history (header-name column detection, robust to layout variants)
+- **`brokers/__init__.py`** — registry: `get_adapter(key)` / `list_adapters()`
+- **`GET /api/brokers`** — list every broker + capabilities (source, oauth, positions, history)
+- **`GET /api/brokers/<key>/status`** — per-broker connection status (CSV brokers ready; Schwab delegates to OAuth state)
+- **`POST /api/brokers/<key>/positions`** — unified ingestion: parse posted CSV for CSV brokers, or live OAuth pull for Schwab; response matches `/api/schwab/sync` so the frontend passes `positions` straight into `buildPortfolio()`. Existing `/api/schwab/*` routes unchanged
+- **`tests/test_brokers.py`** — registry/factory, canonical normalization, Fidelity/IBKR/Schwab CSV parsing against new positions fixtures, Schwab API delegation (mocked), and the new routes
+
 ### TypeScript pass 2 (Phase 3)
 - **Removed `@ts-nocheck`** from `05-session-api.ts` and `08-simulate.ts` — both pilot modules now fully type-checked
 - **`types.ts` additions** — `TickerPathData`, `WhatIfGreeksResult`, `AttributionData` interfaces; `SESSION_KEY`, `DEFAULT_ALERT_THRESHOLDS`, `autoRefreshTimer`, and missing function declarations added to `declare global`; `FetchJsonResult.data` typed as `any` (intentional — each endpoint returns a different shape)

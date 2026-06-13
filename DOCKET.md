@@ -82,6 +82,7 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 
 | Area | Scope |
 |------|-------|
+| **7.1 Multi-broker adapter** | `brokers/` package — common `BrokerAdapter` interface + canonical `normalize_leg`; Schwab (API), Fidelity + IBKR (CSV) adapters; registry + `GET /api/brokers`, `POST /api/brokers/<key>/positions`; `tests/test_brokers.py` |
 | **7.2 Orders** | Draft order builder, staging UI, local persistence (`draft_orders` table), Orders tab (5th tab, kbd `5`) |
 | **7.3 Rules engine** | DB-backed alert rules, auto-evaluation on fetch, browser notifications, SMTP test |
 | **7.4 Strategy templates** | Save/load/apply named leg configurations in what-if builder |
@@ -167,4 +168,4 @@ Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm
 
 ---
 
-*Last updated: 2026-05-22 (v1.1.0 + Schwab API planning)*
+*Last updated: 2026-06-13 (Phase 7.1 multi-broker adapter layer shipped; Phases 4–7 committed, awaiting v1.2.0 release cut)*
