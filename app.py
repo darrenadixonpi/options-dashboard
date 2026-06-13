@@ -38,6 +38,87 @@ MERTON_DEFAULTS = {"sigma_diff_frac": 0.5, "lam": 2.0, "mu_j": -0.10, "sig_j": 0
 # Annualized risk-free rate (≈ 3-month T-bill). Override via env: RISK_FREE=0.040
 RISK_FREE = float(os.environ.get("RISK_FREE", "0.037"))
 
+# ─── yfinance resilience (Phase 5.2) ────────────────────────────────────────
+
+_YF_RETRY_COUNT = int(os.environ.get("YF_RETRY_COUNT", "3"))
+_YF_RETRY_BACKOFF = float(os.environ.get("YF_RETRY_BACKOFF", "1.5"))  # seconds; doubles each attempt
+
+# ─── Rate-limit token bucket (Phase 5.3) ─────────────────────────────────────
+# Limits yfinance calls to YF_RATE_LIMIT_PER_MIN per minute (default 30).
+# Excess callers block (sleep) rather than fail; set to 0 to disable.
+
+import threading as _threading
+
+_YF_RATE_LIMIT = int(os.environ.get("YF_RATE_LIMIT_PER_MIN", "30"))
+_yf_bucket_lock = _threading.Lock()
+_yf_bucket_tokens = _YF_RATE_LIMIT      # starts full
+_yf_bucket_last_refill = time.monotonic()
+
+
+def _yf_acquire_token():
+    """Block until a rate-limit token is available, then consume one."""
+    if _YF_RATE_LIMIT <= 0:
+        return
+    global _yf_bucket_tokens, _yf_bucket_last_refill
+    while True:
+        with _yf_bucket_lock:
+            now = time.monotonic()
+            elapsed = now - _yf_bucket_last_refill
+            # Refill at rate of _YF_RATE_LIMIT tokens per 60 seconds
+            if elapsed >= 1.0:
+                refill = int(elapsed / 60.0 * _YF_RATE_LIMIT)
+                if refill > 0:
+                    _yf_bucket_tokens = min(_YF_RATE_LIMIT, _yf_bucket_tokens + refill)
+                    _yf_bucket_last_refill = now
+            if _yf_bucket_tokens > 0:
+                _yf_bucket_tokens -= 1
+                return
+        # Bucket empty — wait a bit and retry
+        print("[yf] rate limit: bucket empty, waiting 2s", file=sys.stderr)
+        time.sleep(2.0)
+
+
+def _yf_call(fn, *args, retries=None, backoff=None, **kwargs):
+    """Call a yfinance function with rate-limiting + exponential-backoff retry.
+
+    Acquires a token from the rate-limit bucket before each attempt, then retries
+    on transient failure up to YF_RETRY_COUNT times (default 3).
+    Env overrides: YF_RETRY_COUNT, YF_RETRY_BACKOFF, YF_RATE_LIMIT_PER_MIN.
+    """
+    retries = _YF_RETRY_COUNT if retries is None else retries
+    backoff = _YF_RETRY_BACKOFF if backoff is None else backoff
+    last_exc = None
+    for attempt in range(retries):
+        _yf_acquire_token()
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            wait = backoff * (2 ** attempt)
+            print(
+                f"[yf] attempt {attempt + 1}/{retries} failed ({type(exc).__name__}: {exc}); "
+                f"retrying in {wait:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+    raise last_exc
+
+
+def _last_known_price(tkr):
+    """Return the most-recent snapshot price for tkr from the DB, or None."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT price FROM snapshots WHERE ticker=? AND price IS NOT NULL "
+            "ORDER BY timestamp DESC LIMIT 1",
+            (tkr,),
+        ).fetchone()
+        conn.close()
+        return float(row["price"]) if row else None
+    except Exception:
+        return None
+
+
 # ─── SQLite Persistence (#18) ─────────────────────────────────────────────
 
 def _default_db_path():
@@ -385,8 +466,8 @@ def fetch_ticker_data(tkr):
     try:
         tk = yf.Ticker(tkr)
 
-        # Price + historical volatility from 1yr history
-        hist = tk.history(period="1y")
+        # Price + historical volatility from 1yr history (retry on transient failure)
+        hist = _yf_call(tk.history, period="1y")
         if not hist.empty:
             close = hist["Close"].dropna()
             if len(close) >= 2:
@@ -397,11 +478,11 @@ def fetch_ticker_data(tkr):
                 if len(log_ret) >= 60:
                     data["hv60"] = round(float(log_ret.tail(60).std() * np.sqrt(252) * 100), 1)
 
-        # IV from options chain
+        # IV from options chain (retry on transient failure)
         try:
             exps = tk.options
             if exps:
-                chain = tk.option_chain(exps[0])
+                chain = _yf_call(tk.option_chain, exps[0])
                 puts_df = _safe_chain_df(chain.puts) if hasattr(chain, 'puts') else pd.DataFrame()
                 calls_df = _safe_chain_df(chain.calls) if hasattr(chain, 'calls') else pd.DataFrame()
 
@@ -488,7 +569,13 @@ def fetch_ticker_data(tkr):
             pass
 
     except Exception as e:
-        print(f"  Error fetching {tkr}: {e}", file=sys.stderr)
+        print(f"  Error fetching {tkr} after retries: {e}", file=sys.stderr)
+        # Fall back to the most-recent DB snapshot so the UI doesn't go blank
+        stale = _last_known_price(tkr)
+        if stale is not None:
+            data["price"] = stale
+            data["_stale"] = True
+            print(f"  Using last-known price {stale} for {tkr}", file=sys.stderr)
     return data
 
 
@@ -585,7 +672,8 @@ def compute_greeks():
             if _beta_cache.get("__SPY__") and now_ts - _beta_cache["__SPY__"][1] < BETA_SPY_TTL_S:
                 spy_price, spy_ret = _beta_cache["__SPY__"][0]
             else:
-                spy_hist = yf.Ticker("SPY").history(period="6mo")
+                spy_tk = yf.Ticker("SPY")
+                spy_hist = _yf_call(spy_tk.history, period="6mo")
                 spy_price = float(spy_hist["Close"].iloc[-1])
                 spy_ret = np.log(spy_hist["Close"] / spy_hist["Close"].shift(1)).dropna()
                 _beta_cache["__SPY__"] = ((spy_price, spy_ret), now_ts)
@@ -601,7 +689,7 @@ def compute_greeks():
                     beta = cached[0]
                 else:
                     try:
-                        tkr_hist = yf.Ticker(tkr).history(period="6mo")
+                        tkr_hist = _yf_call(yf.Ticker(tkr).history, period="6mo")
                         tkr_ret = np.log(tkr_hist["Close"] / tkr_hist["Close"].shift(1)).dropna()
                         aligned = pd.DataFrame({"spy": spy_ret, "tkr": tkr_ret}).dropna()
                         if len(aligned) >= 30:

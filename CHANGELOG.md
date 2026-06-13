@@ -2,6 +2,16 @@
 
 All notable releases of Options Dashboard.
 
+## [Unreleased] — Phase 5 in progress
+
+### Resilience
+
+- **yfinance retry** — all yfinance calls go through `_yf_call()`: exponential-backoff retry up to `YF_RETRY_COUNT` attempts (default 3); initial wait `YF_RETRY_BACKOFF` seconds (default 1.5, doubles per attempt). Env-overridable.
+- **Per-ticker isolation** — a failing ticker in `/api/market-data` no longer silently returns `None` forever; after retries exhausted it falls back to the most-recent DB snapshot price and sets `_stale: true` so the UI can indicate staleness.
+- **Rate-limit token bucket** — in-process leaky bucket limits yfinance calls to `YF_RATE_LIMIT_PER_MIN` (default 30/min); excess callers block rather than hit Yahoo's soft limits. Set to `0` to disable.
+
+---
+
 ## [Unreleased] — Phase 4 in progress
 
 ### Bug fixes
