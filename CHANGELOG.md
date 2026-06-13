@@ -4,6 +4,12 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased] — Phase 5 in progress
 
+### Background refresh
+
+- **Server-side auto-refresh** — daemon thread refreshes the last-watched ticker set every `BG_REFRESH_INTERVAL_MIN` minutes (default 5; set to `0` to disable). Tickers are registered automatically on any `/api/market-data` POST.
+- **`GET /api/market-data/cached`** — returns the most-recent background result plus `updated_at` timestamp; returns 204 if no background refresh has run yet.
+- **Frontend badge** — polls `/api/market-data/cached` every 60s; shows a clickable "↻ refreshed Xm ago" badge near the Fetch button when the server has data newer than the last manual fetch. Clicking the badge merges the fresh data into state and re-renders.
+
 ### Resilience
 
 - **yfinance retry** — all yfinance calls go through `_yf_call()`: exponential-backoff retry up to `YF_RETRY_COUNT` attempts (default 3); initial wait `YF_RETRY_BACKOFF` seconds (default 1.5, doubles per attempt). Env-overridable.

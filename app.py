@@ -246,6 +246,46 @@ def _parse_occ_symbol(sym):
 
 init_db()
 
+# ─── Background market-data refresh (Phase 5.1) ──────────────────────────────
+# A daemon thread silently refreshes the last-watched ticker set every
+# BG_REFRESH_INTERVAL_MIN minutes (default 5; set to 0 to disable).
+# The cached result is available via GET /api/market-data/cached.
+
+_BG_INTERVAL_MIN = int(os.environ.get("BG_REFRESH_INTERVAL_MIN", "5"))
+_bg_watch_tickers = set()          # tickers registered by any market-data POST
+_bg_market_cache = {               # last background-refresh result
+    "data": {},
+    "updated_at": None,
+}
+_bg_lock = _threading.Lock()
+
+
+def _bg_refresh_loop():
+    if _BG_INTERVAL_MIN <= 0:
+        return
+    interval_s = _BG_INTERVAL_MIN * 60
+    while True:
+        time.sleep(interval_s)
+        with _bg_lock:
+            tickers = list(_bg_watch_tickers)
+        if not tickers:
+            continue
+        print(f"[bg-refresh] Refreshing {len(tickers)} tickers...", file=sys.stderr)
+        try:
+            new_data = {tkr: fetch_ticker_data(tkr) for tkr in tickers}
+            with _bg_lock:
+                _bg_market_cache["data"] = new_data
+                _bg_market_cache["updated_at"] = datetime.now().isoformat()
+            print(f"[bg-refresh] Done ({len(tickers)} tickers)", file=sys.stderr)
+        except Exception as exc:
+            print(f"[bg-refresh] Error: {exc}", file=sys.stderr)
+
+
+_bg_thread = _threading.Thread(
+    target=_bg_refresh_loop, daemon=True, name="bg-market-refresh"
+)
+_bg_thread.start()
+
 
 def _calendar_field(cal, key):
     """Read a field from yf.Ticker.calendar across yfinance versions.
@@ -450,6 +490,9 @@ def market_data():
     tickers = request.json.get("tickers", [])
     if not tickers:
         return jsonify({"error": "No tickers provided"}), 400
+    # Register for background auto-refresh
+    with _bg_lock:
+        _bg_watch_tickers.update(tickers)
     results = {}
     for tkr in tickers:
         results[tkr] = fetch_ticker_data(tkr)
@@ -459,6 +502,30 @@ def market_data():
 @app.route("/api/market-data/<ticker>")
 def single_ticker(ticker):
     return jsonify(fetch_ticker_data(ticker.upper()))
+
+
+@app.route("/api/market-data/cached")
+def market_data_cached():
+    """Return the most recent background-refreshed market data and metadata.
+
+    Response shape:
+      { data: {TICKER: {...}}, updated_at: ISO-string|null,
+        ticker_count: int, interval_min: int }
+    Clients can poll this to get auto-refreshed data without triggering a live
+    yfinance fetch. Returns 204 if no background refresh has run yet.
+    """
+    with _bg_lock:
+        data = dict(_bg_market_cache["data"])
+        updated_at = _bg_market_cache["updated_at"]
+        ticker_count = len(_bg_watch_tickers)
+    if updated_at is None:
+        return "", 204
+    return jsonify({
+        "data": data,
+        "updated_at": updated_at,
+        "ticker_count": ticker_count,
+        "interval_min": _BG_INTERVAL_MIN,
+    })
 
 
 def fetch_ticker_data(tkr):
