@@ -1,6 +1,6 @@
 # Schwab API — Registration & integration plan
 
-Plan for connecting Options Dashboard to Charles Schwab via OAuth. **Not implemented in v1.1.0** — CSV import remains the current Schwab path.
+Plan for connecting Options Dashboard to Charles Schwab via OAuth. **Client built in v1.2.0 (Phase 6) but not yet activated** — CSV import remains the working Schwab path until the developer-app credentials are approved and added to `.env`.
 
 **Decision (2026-05):** Wait for API approval rather than prioritizing live CSV validation. User has an active Schwab brokerage account; developer app registration is in progress.
 
@@ -8,7 +8,7 @@ For roadmap status, see [DOCKET.md](../DOCKET.md).
 
 ---
 
-## Current state (v1.1.0)
+## Current state (v1.2.0)
 
 | Capability | Schwab today | After API (v1.2 target) |
 |------------|--------------|-------------------------|
@@ -165,6 +165,7 @@ Lower effort than OAuth; good parallel path while waiting for **Ready for Use**.
 | 2026-05-22 | Decision: prioritize Schwab API over live CSV smoke |
 | 2026-05-22 | Developer app registration walkthrough documented (this file) |
 | 2026-06-13 | Phase 6 implemented: `schwab_client.py`, `/api/schwab/*` routes, frontend panel, 16 mocked tests |
+| 2026-06-13 | v1.2.0 cut: Schwab adapter folded into the unified `brokers/` layer (`GET /api/brokers`, `POST /api/brokers/<key>/positions`) |
 | _TBD_ | App status → Ready for Use (activate with SCHWAB_CLIENT_ID + SCHWAB_CLIENT_SECRET in .env) |
 
 Update this table when registration completes or live credentials are tested.

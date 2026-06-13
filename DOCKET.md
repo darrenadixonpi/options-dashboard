@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.1.0](CHANGELOG.md) — Phases 1–3 modernization + sim/chart UX.
+**Current release:** [v1.2.0](CHANGELOG.md) — Phases 4–7: broker integration, async market data, orders & rules, tax lots & VaR, journal v2, notifications & export.
 
 ---
 
@@ -27,7 +27,7 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | Packaging (start/stop scripts, Docker, bundle) | ✅ |
 | Smoke tests (`pytest tests/test_smoke.py`) | ✅ |
 | GitHub CI (`.github/workflows/ci.yml`) | ✅ |
-| Release notes + version tag | ✅ (`v1.1.0` tagged on origin) |
+| Release notes + version tag | ✅ `v1.1.0` tagged; `v1.2.0` notes ready, tag pending |
 | GitHub Releases page | ⏳ Optional — tag exists; draft release on GitHub UI if desired |
 | Schwab/IBKR **live** CSV validation | ⏳ Deferred (API-first for Schwab) |
 | Journal complex multi-day strategy labels | ⏳ Partial (same-day spreads OK) |
@@ -93,15 +93,15 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 
 ---
 
-## Next up (v1.2+)
+## Next up (post-1.2.0)
 
 | # | Item | Notes |
 |---|------|--------|
-| 1 | **Schwab API sync** | OAuth + position pull; see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). Registration in progress. |
-| 2 | **TypeScript expansion** | See Phase 3 remainder checklist above |
-| 3 | **Schwab/IBKR live CSV smoke** | Fallback if API delayed; real exports → parser fixes |
-| 4 | **Journal strategy v2** | Multi-day spread/condor grouping; outlier flags |
-| 5 | **GitHub Releases page** | Optional UI release for `v1.1.0` (git tag already pushed) |
+| 1 | **Activate Schwab API sync** | Code built (Phase 6); add `SCHWAB_CLIENT_ID`/`SCHWAB_CLIENT_SECRET` once the developer app is *Ready for Use* — [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
+| 2 | **TypeScript expansion** | Convert remaining JS modules to TS (see Phase 3 remainder checklist) |
+| 3 | **Schwab/IBKR live CSV smoke** | Validate against real broker exports → parser fixes |
+| 4 | **Additional broker adapters** | Tastytrade / TD via the `brokers/` `BrokerAdapter` interface (7.1) |
+| 5 | **GitHub Releases page** | Draft a release for the `v1.2.0` tag |
 
 ---
 
@@ -168,4 +168,4 @@ Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm
 
 ---
 
-*Last updated: 2026-06-13 (Phase 7.1 multi-broker adapter layer shipped; Phases 4–7 committed, awaiting v1.2.0 release cut)*
+*Last updated: 2026-06-13 (v1.2.0 release cut — Phases 4–7 consolidated; Schwab API client built, pending credential activation)*

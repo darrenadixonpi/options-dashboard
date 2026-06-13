@@ -1,8 +1,8 @@
 # Options Dashboard
 
-**v1.1.0** — Local web app for visualizing your options portfolio with live market data, Greeks, Monte Carlo simulation, and trade journal.
+**v1.2.0** — Local web app for your options portfolio: live market data, Greeks, Monte Carlo simulation, order & rules management, tax lots, VaR, a trade journal, and broker position sync.
 
-> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; Schwab API sync is planned for v1.2 — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md).
+> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parse via CSV (fixture-tested); the Schwab OAuth API client is built and activates once developer-app credentials are approved — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). All brokers share one adapter layer (`brokers/`).
 
 ## Documentation
 
@@ -88,7 +88,8 @@ options-app/
 ├── scripts/               # launch, stop, setup, prep_before_start, check_env
 ├── e2e/                   # Playwright chart tests
 ├── Dockerfile / docker-compose.yml
-├── static/                # index.html, css/, js/ (13 runtime modules + TS pilot)
+├── static/                # index.html, css/, js/ (14 runtime modules + TS pilot)
+├── brokers/               # Multi-broker adapter layer (Schwab API, Fidelity/IBKR CSV)
 ├── tests/                 # Smoke + API schema tests + CSV fixtures
 ├── docs/                  # SCHWAB_API.md, archive/
 └── tools/                 # Frontend bundle + vendor scripts
@@ -106,7 +107,7 @@ docker compose up -d        # background
 
 Open **http://localhost:5000**. Data persists in `portfolio.db` in the project root.
 
-Release: **v1.1.0** — see [CHANGELOG.md](CHANGELOG.md).
+Release: **v1.2.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Optional Windows portable (.exe)
 
@@ -121,7 +122,7 @@ dist\OptionsDashboard\OptionsDashboard.exe --no-browser
 
 ## Frontend bundle (#7)
 
-**Dev (default):** `index.html` loads 13 individual scripts. TypeScript pilot modules (`05-session-api.ts`, `08-simulate.ts`) require **`npm run build`** to emit dev `.js` files — `start.bat` does this automatically.
+**Dev (default):** `index.html` loads 14 individual scripts. TypeScript pilot modules (`05-session-api.ts`, `08-simulate.ts`) require **`npm run build`** to emit dev `.js` files — `start.bat` does this automatically.
 
 **Production bundle** (esbuild IIFE, shared global scope preserved):
 
@@ -149,10 +150,10 @@ Module order lives in `tools/frontend-manifest.mjs`. See `static/js/README.md`.
 | Broker | Positions | History | Status |
 |--------|-----------|---------|--------|
 | **Fidelity** | ✓ | ✓ | **Validated** (primary v1.0 path) |
-| **Schwab** | ✓ | ✓ | CSV experimental (fixtures); **API sync planned v1.2** — [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
+| **Schwab** | ✓ | ✓ | CSV (fixtures); **OAuth API client built** — activate with credentials ([docs/SCHWAB_API.md](docs/SCHWAB_API.md)) |
 | **IBKR** | ✓ Flex | ✓ Flex | Experimental — fixture tests pass |
 
-Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
+All brokers share one adapter layer: `brokers/` (`GET /api/brokers`, `POST /api/brokers/<key>/positions`) — see [brokers/README.md](brokers/README.md). CSV parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
 
 ## Backend API (quick reference)
 
@@ -160,7 +161,8 @@ All routes are on `http://localhost:5000` by default.
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/version` | `{"name":"options-dashboard","version":"1.1.0"}` |
+| `GET` | `/api/version` | `{"name":"options-dashboard","version":"1.2.0"}` |
+| `GET` | `/api/brokers` | List brokers + capabilities; `POST /api/brokers/<key>/positions` to import/sync |
 | `POST` | `/api/market-data` | Prices + IV for a list of tickers |
 | `POST` | `/api/greeks` | BSM greeks + beta-weighted delta |
 | `POST` | `/api/simulate` | Monte Carlo simulation (GBM or Merton) |
@@ -181,7 +183,7 @@ Full schema validation on `/api/simulate` and `/api/greeks` responses via `api_s
 - **Auto-refresh** — Updates spot, marks, and greeks only; full **Fetch** still required for sim, risk matrix, attribution, and events
 - **Session data** — Uploaded CSVs live in browser localStorage; `portfolio.db` stores server snapshots from fetches
 - **TypeScript** — Pilot only (`05-session-api`, `08-simulate`); remaining modules are JavaScript — see [DOCKET.md](DOCKET.md) Phase 3 remainder
-- **Schwab API** — Not wired in v1.1; registration + v1.2 plan in [docs/SCHWAB_API.md](docs/SCHWAB_API.md)
+- **Schwab API** — OAuth client built (Phase 6); live sync activates once developer-app credentials are approved — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md)
 
 ## Keyboard shortcuts
 

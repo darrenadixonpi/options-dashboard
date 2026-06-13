@@ -84,7 +84,7 @@ Setup guide: [GitHub SSH keys](https://docs.github.com/en/authentication/connect
 ## After the first push
 
 - **CI** runs automatically (`.github/workflows/ci.yml`) — pytest, pip-audit, frontend build, typecheck, and Playwright E2E on every push/PR
-- **Releases:** Git tag **`v1.1.0`** is on the remote. Optional: GitHub → **Releases** → **Draft a new release** → select existing tag `v1.1.0`, paste notes from [CHANGELOG.md](CHANGELOG.md)
+- **Releases:** After tagging **`v1.2.0`** (`git tag v1.2.0 && git push origin v1.2.0`), draft a release: GitHub → **Releases** → **Draft a new release** → select tag `v1.2.0`, paste notes from [docs/RELEASE_NOTES_v1.2.0.md](docs/RELEASE_NOTES_v1.2.0.md)
 - **Clone elsewhere:** `git clone …` then `scripts/setup.ps1` or `./start.sh` — see [DOCKET.md](DOCKET.md) § Relocating the project for `portfolio.db`, `.env`, and localStorage
 
 ---

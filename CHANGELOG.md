@@ -2,7 +2,9 @@
 
 All notable releases of Options Dashboard.
 
-## [Unreleased] — Phase 7 in progress
+## [1.2.0] — 2026-06-13
+
+Major feature release consolidating Phases 4–7 on top of v1.1.0: broker integration (a Schwab OAuth API client plus a unified multi-broker adapter layer — live Schwab sync activates once the developer-app credentials are approved), background/async market data with yfinance resilience, order and rules management, tax-lot and VaR analytics, a journal overhaul, desktop/email notifications and CSV export, and completion of the TypeScript pilot pass.
 
 ### Multi-broker adapter layer (7.1)
 - **`brokers/` package** — a common `BrokerAdapter` interface so every broker (Schwab API, Fidelity CSV, IBKR CSV) plugs in behind one contract and emits the **same canonical leg shape**. Adding a broker is "write an adapter + register it" — no edits to `app.py` core, simulation, greeks, or the journal
@@ -68,12 +70,14 @@ All notable releases of Options Dashboard.
 - **`static/js/10-phase7.js`** — new module wiring all Phase 7 UI (tax lots, VaR, templates, alert rules, notifications, export, orders)
 - TAB_MAP extended to include `orders: "tab-orders"`
 - `switchToTab()` hooks: loads orders list on Orders tab, refreshes strategy templates on Risk tab
+- **Bundle fix** — registered `10-phase7.js` in `tools/frontend-manifest.mjs` `MODULE_ORDER` so all Phase 7 UI ships in the production esbuild bundle and Docker (`USE_JS_BUNDLE`), not just dev script tags
 
----
+### Journal v2
+- **Collapsible strategy groups** — closed trades group by strategy with expand/collapse
+- **Cross-day open-date matching** — opening and closing fills paired across different days for multi-day structures
+- **Outlier flags** — trades with anomalous P&L highlighted in the journal table
 
-## [Unreleased] — Phase 6 in progress
-
-### Schwab API integration
+### Schwab API integration (Phase 6)
 
 - **`schwab_client.py`** — new `SchwabClient` class: OAuth 2.0 Authorization Code flow (paste-URL, no local HTTPS listener), token persistence to `schwab_token.json`, auto-refresh of access token, 7-day refresh token expiry detection, `get_positions()` normalizer maps Schwab option + equity positions to internal leg format
 - **`GET /api/schwab/status`** — returns `{configured, authenticated, needs_reauth, token_age_hours}`
@@ -85,11 +89,7 @@ All notable releases of Options Dashboard.
 - **`tests/test_schwab_api.py`** — 16 mocked tests covering config, auth URL, callback exchange, position normalization (option + equity + flat skip), disconnect, and all 5 Flask routes
 - **`requests>=2.28`** added to `requirements.txt`
 
----
-
-## [Unreleased] — Phase 5 in progress
-
-### Background refresh
+### Background refresh (Phase 5)
 
 - **Server-side auto-refresh** — daemon thread refreshes the last-watched ticker set every `BG_REFRESH_INTERVAL_MIN` minutes (default 5; set to `0` to disable). Tickers are registered automatically on any `/api/market-data` POST.
 - **`GET /api/market-data/cached`** — returns the most-recent background result plus `updated_at` timestamp; returns 204 if no background refresh has run yet.
@@ -101,11 +101,7 @@ All notable releases of Options Dashboard.
 - **Per-ticker isolation** — a failing ticker in `/api/market-data` no longer silently returns `None` forever; after retries exhausted it falls back to the most-recent DB snapshot price and sets `_stale: true` so the UI can indicate staleness.
 - **Rate-limit token bucket** — in-process leaky bucket limits yfinance calls to `YF_RATE_LIMIT_PER_MIN` (default 30/min); excess callers block rather than hit Yahoo's soft limits. Set to `0` to disable.
 
----
-
-## [Unreleased] — Phase 4 in progress
-
-### Bug fixes
+### Bug fixes (Phase 4)
 
 - **Fractional strike parsing** — OCC symbols with Fidelity decimal notation (e.g. `-OVID260618P2.5`) now correctly parse strike=2.5 instead of truncating to 2.0
 - **yfinance calendar API** — `tk.calendar` returns a `dict` in yfinance ≥0.2.x; `_calendar_field()` helper handles both dict and legacy DataFrame forms so dividend and earnings dates are no longer silently `None`
@@ -118,7 +114,7 @@ All notable releases of Options Dashboard.
 
 ### API
 
-- **`GET /api/version`** — returns `{"name": "options-dashboard", "version": "1.1.0"}`; reads from `VERSION` file
+- **`GET /api/version`** — returns `{"name": "options-dashboard", "version": "1.2.0"}`; reads from `VERSION` file
 
 ### UX
 
@@ -131,6 +127,8 @@ All notable releases of Options Dashboard.
 - **Test DB isolation** — `tests/conftest.py` creates a temp DB before `import app` so pytest never writes to the live `portfolio.db`
 - **Regression tests** — `test_parse_occ_symbol_fractional_strike`, `test_calendar_field_dict_and_dataframe`
 - **Prep script parity** — `scripts/prep_before_start.py` now runs `npm run typecheck:pilot` to match CI
+
+---
 
 ## [1.1.0] — 2026-05-22
 
