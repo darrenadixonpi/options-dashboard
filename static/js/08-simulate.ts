@@ -1,4 +1,3 @@
-// @ts-nocheck — pilot: transpiled by esbuild; strict checks deferred (DOM types pass 2).
 /// <reference path="./types.ts" />
 // ═══════════════════════════════════════════════════════════════════════════
 // Simulation
@@ -12,7 +11,7 @@ let pnlHistPanContext = null;
 let pnlHistPanGlobalWired = false;
 
 function enableSimButton() {
-  document.getElementById("btn-simulate").disabled = !state.positions.length;
+  (document.getElementById("btn-simulate") as HTMLButtonElement).disabled = !state.positions.length;
   const inlineSection = document.getElementById("dashboard-sim-section");
   if (inlineSection && state.marketData && state.positions.length) inlineSection.hidden = false;
 }
@@ -22,12 +21,12 @@ async function runSimulation(btn, logEl) {
   btn.disabled = true;
   btn.innerHTML = "<span class='od-spinner'></span> <span>Simulating...</span>";
   logEl.textContent = "Running Monte Carlo simulation on server...";
-  const allBtns = [document.getElementById("btn-simulate"), document.getElementById("btn-simulate-inline")].filter(Boolean);
+  const allBtns = [document.getElementById("btn-simulate"), document.getElementById("btn-simulate-inline")].filter(Boolean) as HTMLButtonElement[];
   allBtns.forEach(b => b.disabled = true);
 
   try {
     const payload = state.positions.map(p => ({
-      ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry) : null, strike: p.strike,
+      ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry instanceof Date ? p.expiry : new Date(p.expiry as string)) : null, strike: p.strike,
       optType: p.optType, contracts: p.contracts, avgCost: p.avgCost || 0,
       adjCost: p.adjCost || null, totalPremium: p.totalPremium || 0,
       posType: p.posType || "option", shares: p.shares || 0,
@@ -281,24 +280,24 @@ function pnlHistChartDisplay(view) {
   return { labels, displayCounts, actualCounts, yMax, hasLowTail, hasHighTail };
 }
 
-function syncPnlHistSliderUi(stats, view, opts = {}) {
+function syncPnlHistSliderUi(stats, view, opts: { fromSlider?: boolean } = {}) {
   const wrap = document.getElementById("pnl-hist-slider-wrap");
-  const loEl = document.getElementById("pnl-hist-lo");
-  const hiEl = document.getElementById("pnl-hist-hi");
+  const loEl = document.getElementById("pnl-hist-lo") as HTMLInputElement | null;
+  const hiEl = document.getElementById("pnl-hist-hi") as HTMLInputElement | null;
   const lbl = document.getElementById("pnl-hist-range-label");
   if (!wrap || !loEl || !hiEl || !lbl) return;
 
   wrap.hidden = false;
   const step = pnlHistStep(stats);
   for (const el of [loEl, hiEl]) {
-    el.min = stats.min;
-    el.max = stats.max;
-    el.step = step;
+    (el as HTMLInputElement).min = String(stats.min);
+    (el as HTMLInputElement).max = String(stats.max);
+    (el as HTMLInputElement).step = String(step);
   }
 
   if (!opts.fromSlider) {
-    loEl.value = view.viewLo;
-    hiEl.value = view.viewHi;
+    loEl.value = String(view.viewLo);
+    hiEl.value = String(view.viewHi);
   }
 
   lbl.textContent = `${fmtDollar(+loEl.value)} … ${fmtDollar(+hiEl.value)}`;
@@ -311,7 +310,7 @@ function wirePnlHistRangeControls() {
   if (toggle && !toggle.dataset.wired) {
     toggle.dataset.wired = "1";
     toggle.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-pnl-range]");
+      const btn = (e.target as HTMLElement).closest("[data-pnl-range]") as HTMLElement | null;
       if (!btn || !state.simResult) return;
       state.pnlHistRange = btn.dataset.pnlRange;
       state.pnlHistCustom = null;
@@ -325,8 +324,8 @@ function wirePnlHistRangeControls() {
 
   const onSlider = () => {
     if (!state.simResult) return;
-    const loEl = document.getElementById("pnl-hist-lo");
-    const hiEl = document.getElementById("pnl-hist-hi");
+    const loEl = document.getElementById("pnl-hist-lo") as HTMLInputElement;
+    const hiEl = document.getElementById("pnl-hist-hi") as HTMLInputElement;
     const stats = state.simResult.portfolio;
     const step = pnlHistStep(stats);
     let lo = +loEl.value;
@@ -337,8 +336,8 @@ function wirePnlHistRangeControls() {
     }
     lo = Math.max(stats.min, Math.min(lo, stats.max - step));
     hi = Math.min(stats.max, Math.max(hi, lo + step));
-    loEl.value = lo;
-    hiEl.value = hi;
+    loEl.value = String(lo);
+    hiEl.value = String(hi);
     state.pnlHistRange = "custom";
     state.pnlHistCustom = { lo, hi };
     renderPortfolioPnlChart(state.simResult, "custom", { fromSlider: true });
@@ -507,15 +506,16 @@ function renderPortfolioPnlChart(data: SimulateResult, rangeMode?: string, opts:
   if (toggle) {
     toggle.hidden = !needsFocus;
     toggle.querySelectorAll("[data-pnl-range]").forEach(btn => {
+      const btnEl = btn as HTMLElement;
       const isActive = view.mode === "custom"
         ? false
         : view.mode === "full"
-          ? btn.dataset.pnlRange === "full"
+          ? btnEl.dataset.pnlRange === "full"
           : view.mode === "focus"
-            ? btn.dataset.pnlRange === "focus"
+            ? btnEl.dataset.pnlRange === "focus"
             : false;
-      btn.classList.toggle("active", isActive);
-      btn.classList.toggle("btn-ghost", !isActive);
+      btnEl.classList.toggle("active", isActive);
+      btnEl.classList.toggle("btn-ghost", !isActive);
     });
   }
 
@@ -681,15 +681,15 @@ function wirePProfitViewControls(data: SimulateResult) {
   if (!wrap) return;
   const view = state.simPProfitView || "book";
   wrap.querySelectorAll("[data-pprofit-view]").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.pprofitView === view);
+    (btn as HTMLElement).classList.toggle("active", (btn as HTMLElement).dataset.pprofitView === view);
   });
   if (wrap.dataset.wired) return;
   wrap.dataset.wired = "1";
   wrap.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest("[data-pprofit-view]");
+    const btn = (e.target as HTMLElement).closest("[data-pprofit-view]") as HTMLElement | null;
     if (!btn) return;
     const next = btn.dataset.pprofitView || "book";
-    state.simPProfitView = next;
+    state.simPProfitView = next as "book" | "slices";
     saveSession();
     wrap.querySelectorAll("[data-pprofit-view]").forEach(b => b.classList.toggle("active", b === btn));
     renderStrategyProfitChart(data, next);
@@ -731,9 +731,10 @@ function setSimTickerNavActive(tkr) {
   const nav = document.getElementById("sim-ticker-nav");
   if (!nav) return;
   nav.querySelectorAll("[data-sim-nav]").forEach(b => {
-    const on = b.dataset.simNav === tkr;
-    b.classList.toggle("active", on);
-    if (on) b.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const bEl = b as HTMLElement;
+    const on = bEl.dataset.simNav === tkr;
+    bEl.classList.toggle("active", on);
+    if (on) bEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 }
 
@@ -742,7 +743,7 @@ function wireSimTickerNav() {
   if (!nav || nav.dataset.wired) return;
   nav.dataset.wired = "1";
   nav.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-sim-nav]");
+    const btn = (e.target as HTMLElement).closest("[data-sim-nav]") as HTMLElement | null;
     if (!btn) return;
     const tkr = btn.dataset.simNav;
     setSimTickerNavActive(tkr);
@@ -996,7 +997,7 @@ function jumpToSimTicker(tkr) {
       if (state.simFocusTicker) {
         state.simFocusTicker = null;
         const sel = document.getElementById("sim-focus-select");
-        if (sel) sel.value = "";
+        if (sel) (sel as HTMLSelectElement).value = "";
         applySimFocusMode();
         saveSession();
       }
@@ -1063,8 +1064,8 @@ function wireSimPathToolbar(tickers) {
   const sel = document.getElementById("sim-focus-select");
   if (sel && !sel.dataset.wired) {
     sel.dataset.wired = "1";
-    sel.addEventListener("change", () => {
-      state.simFocusTicker = sel.value || null;
+    (sel as HTMLSelectElement).addEventListener("change", () => {
+      state.simFocusTicker = (sel as HTMLSelectElement).value || null;
       applySimFocusMode();
       saveSession();
       if (state.simFocusTicker) {
@@ -1096,7 +1097,8 @@ function renderTickerPathCharts(paths, tickerStats) {
     ).join("");
   }
 
-  for (const [tkr, pd] of entries) {
+  for (const [tkr, pd_raw] of entries) {
+    const pd = pd_raw as TickerPathData;
     const stats = tickerStats[tkr] || {};
     const canvasId = `path-${tkr}`;
     const model = pd.model === "merton" ? "Merton JD" : "GBM";
@@ -1126,7 +1128,7 @@ function renderTickerPathCharts(paths, tickerStats) {
     destroyChart(canvasId);
 
     wrapper.querySelector(`[data-toggle-path="${tkr}"]`)?.addEventListener("click", (e) => {
-      if (e.target.closest(".sim-ticker-link")) return;
+      if ((e.target as HTMLElement).closest(".sim-ticker-link")) return;
       wrapper.classList.toggle("collapsed");
       setSimChartCollapsed(tkr, wrapper.classList.contains("collapsed"));
     });
@@ -1158,14 +1160,14 @@ function renderTickerPathCharts(paths, tickerStats) {
       return { borderColor: "rgba(136,232,138,0.8)", borderDash: [5, 3], color: "#88e88a" };
     });
     // Event overlays (#8)
-    const tkrEvents = state.events?.[tkr] || [];
-    tkrEvents.forEach((ev, i) => {
-      const evDate = new Date(ev.date);
+    const tkrEvents = (state.events?.[tkr] || []) as any[];
+    tkrEvents.forEach((ev: any, i) => {
+      const evDate = new Date(ev.date as string);
       const today = new Date();
-      const dayOffset = Math.ceil((evDate - today) / 86400000);
-      const totalDays = pd.dates.length;
+      const dayOffset = Math.ceil((evDate.getTime() - today.getTime()) / 86400000);
+      const totalDays = (pd.dates || []).length;
       if (dayOffset > 0 && dayOffset < totalDays) {
-        const chartIdx = Math.min(Math.round(dayOffset / totalDays * pd.dates.length), pd.dates.length - 1);
+        const chartIdx = Math.min(Math.round(dayOffset / totalDays * (pd.dates || []).length), (pd.dates || []).length - 1);
         annotations[`event_${i}`] = { type: "line", xMin: chartIdx, xMax: chartIdx, borderColor: ev.type === "earnings" ? "rgba(255,255,100,0.6)" : "rgba(100,200,255,0.6)", borderWidth: 1.5, borderDash: [2, 2], label: { display: true, content: `📅 ${ev.label}`, position: "start", backgroundColor: "rgba(30,30,28,0.85)", color: "#ffff64", font: { size: 9, family: "JetBrains Mono" }, padding: 3 } };
       }
     });
@@ -1206,12 +1208,13 @@ function renderTickerPathCharts(paths, tickerStats) {
   applySimFocusMode();
 
   container.querySelectorAll(".sim-ticker-link").forEach(el => {
-    el.addEventListener("click", (e) => {
+    const elEl = el as HTMLElement;
+    elEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      const tkr = el.dataset.ticker;
+      const tkr = elEl.dataset.ticker;
       switchToTab("positions");
       setTimeout(() => {
-        const target = document.querySelector(`.tk-block[data-ticker="${tkr}"]`);
+        const target = document.querySelector(`.tk-block[data-ticker="${tkr}"]`) as HTMLElement | null;
         if (target) {
           const stickyEl = document.getElementById("dashboard-sticky");
           const stickyH = stickyEl ? stickyEl.offsetHeight : 0;
@@ -1233,7 +1236,7 @@ function scrollSimSection(id) {
   const el = document.getElementById(id);
   if (!el || el.hidden) return;
   const topBar = document.querySelector(".top-bar");
-  const offset = (topBar?.offsetHeight || 56) + 12;
+  const offset = ((topBar as HTMLElement)?.offsetHeight || 56) + 12;
   const y = el.getBoundingClientRect().top + window.scrollY - offset;
   window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
 }
@@ -1244,15 +1247,15 @@ function wireSimJumpNav() {
   if (!top || !nav) return;
   nav.hidden = false;
   nav.querySelectorAll("[data-sim-jump]").forEach(btn => {
-    const target = document.getElementById(btn.dataset.simJump);
-    btn.hidden = !!(target && target.hidden);
+    const btnEl = btn as HTMLElement;
+    const target = document.getElementById(btnEl.dataset.simJump);
+    (btnEl as HTMLElement).hidden = !!(target && target.hidden);
   });
   if (top.dataset.jumpWired) return;
   top.dataset.jumpWired = "1";
   top.addEventListener("click", (e) => {
-    const btn = (e.target as Element).closest("[data-sim-jump]") as HTMLElement | null;
+    const btn = (e.target as HTMLElement).closest("[data-sim-jump]") as HTMLElement | null;
     if (!btn) return;
     scrollSimSection(btn.dataset.simJump!);
   });
 }
-

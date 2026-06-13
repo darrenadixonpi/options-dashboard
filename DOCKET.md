@@ -41,7 +41,7 @@ Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 comp
 | Item | Status |
 |------|--------|
 | Convert remaining JS modules to TypeScript | ⏳ |
-| Remove `@ts-nocheck` on pilot modules | ⏳ |
+| Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:pilot`) |
 | Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
 | Full ES modules / drop global script concat | ⏳ Backlog |
 | All 13 runtime modules typechecked under one `tsconfig` | ⏳ |

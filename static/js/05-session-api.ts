@@ -1,4 +1,3 @@
-// @ts-nocheck — pilot: transpiled by esbuild; strict checks deferred (DOM types pass 2).
 /// <reference path="./types.ts" />
 
 function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
@@ -57,7 +56,7 @@ function getMergedPositions() {
   return [...state.positions.map(positionPayload), ...(state.hypothetical || []).map(positionPayload)];
 }
 
-function buildMarketSnapshot(marketData, greeks) {
+function buildMarketSnapshot(marketData: Record<string, any> | null, greeks: any) {
   const prices = {}, ivs = {}, greekMap = {};
   if (marketData) {
     for (const [tkr, md] of Object.entries(marketData)) {
@@ -115,7 +114,7 @@ function renderAttribution(data, prevAt) {
     }),
   });
   let rows = "";
-  for (const [tkr, a] of Object.entries(data.byTicker || {}).sort((x, y) => Math.abs(y[1].total) - Math.abs(x[1].total))) {
+  for (const [tkr, a] of (Object.entries(data.byTicker || {}) as [string, AttributionData["byTicker"][string]][]).sort((x, y) => Math.abs(y[1].total) - Math.abs(x[1].total))) {
     rows += `<tr><td>${tkr}</td><td class="r">${fmtDollar(a.pricePnl)}</td><td class="r">${fmtDollar(a.thetaPnl)}</td><td class="r">${fmtDollar(a.vegaPnl)}</td><td class="r" style="font-weight:500">${fmtDollar(a.total)}</td></tr>`;
   }
   document.getElementById("attribution-table").innerHTML = rows
@@ -125,7 +124,7 @@ function renderAttribution(data, prevAt) {
 
 async function refreshOptionMarks() {
   if (!state.positions.length) return;
-  const btn = document.getElementById("btn-refresh-marks");
+  const btn = document.getElementById("btn-refresh-marks") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
   const shortLegs = state.positions.filter(p => p.posType !== "equity" && p.contracts < 0 && p.expiry);
   try {
@@ -146,7 +145,7 @@ async function refreshOptionMarks() {
     saveSession();
     refreshDeskAlerts();
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Refresh option marks"; }
+    if (btn) { btn.disabled = false; btn.textContent = "Refresh option marks"; }  // btn: HTMLButtonElement
   }
 }
 
@@ -219,16 +218,16 @@ function startAutoRefresh() {
 }
 
 function syncAutoRefreshUI() {
-  const cb = document.getElementById("auto-refresh-marks");
-  const sel = document.getElementById("auto-refresh-interval");
+  const cb = document.getElementById("auto-refresh-marks") as HTMLInputElement | null;
+  const sel = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
   if (cb) cb.checked = !!state.autoRefresh?.enabled;
   if (sel && state.autoRefresh?.intervalMin) sel.value = String(state.autoRefresh.intervalMin);
   startAutoRefresh();
 }
 
 function setupAutoRefreshControls() {
-  const cb = document.getElementById("auto-refresh-marks");
-  const sel = document.getElementById("auto-refresh-interval");
+  const cb = document.getElementById("auto-refresh-marks") as HTMLInputElement | null;
+  const sel = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
   if (!cb || cb.dataset.wired) return;
   cb.dataset.wired = "1";
   cb.addEventListener("change", () => {
@@ -304,8 +303,8 @@ async function loadWhatIfStrikes(ticker, expiry, optType) {
 }
 
 function applyWhatIfStrikeMid() {
-  const strikeSel = document.getElementById("wi-strike");
-  const costIn = document.getElementById("wi-cost");
+  const strikeSel = document.getElementById("wi-strike") as HTMLSelectElement | null;
+  const costIn = document.getElementById("wi-cost") as HTMLInputElement | null;
   if (!strikeSel || !costIn) return;
   const opt = strikeSel.selectedOptions[0];
   const mid = opt?.dataset?.mid;
@@ -319,17 +318,17 @@ function beginEditWhatIfLeg(i) {
   const h = state.hypothetical[i];
   if (!h) return;
   state.whatifEditIndex = i;
-  document.getElementById("wi-ticker").value = h.ticker;
-  document.getElementById("wi-type").value = h.optType || "Put";
-  document.getElementById("wi-contracts").value = h.contracts;
-  document.getElementById("wi-cost").value = h.avgCost || "";
+  (document.getElementById("wi-ticker") as HTMLInputElement).value = h.ticker as string;
+  (document.getElementById("wi-type") as HTMLSelectElement).value = (h.optType || "Put") as string;
+  (document.getElementById("wi-contracts") as HTMLInputElement).value = String(h.contracts);
+  (document.getElementById("wi-cost") as HTMLInputElement).value = String(h.avgCost || "");
   document.getElementById("btn-whatif-add").textContent = "Update leg";
-  document.getElementById("btn-whatif-cancel-edit").hidden = false;
-  loadWhatIfExpiries(h.ticker).then(() => {
-    document.getElementById("wi-expiry").value = h.expiry;
-    return loadWhatIfStrikes(h.ticker, h.expiry, h.optType);
+  (document.getElementById("btn-whatif-cancel-edit") as HTMLElement).hidden = false;
+  loadWhatIfExpiries(h.ticker as string).then(() => {
+    (document.getElementById("wi-expiry") as HTMLSelectElement).value = h.expiry as string;
+    return loadWhatIfStrikes(h.ticker as string, h.expiry as string, h.optType as string);
   }).then(() => {
-    document.getElementById("wi-strike").value = String(h.strike);
+    (document.getElementById("wi-strike") as HTMLSelectElement).value = String(h.strike);
   });
   renderWhatIfList();
 }
@@ -337,14 +336,14 @@ function beginEditWhatIfLeg(i) {
 function cancelWhatIfEdit() {
   state.whatifEditIndex = null;
   document.getElementById("btn-whatif-add").textContent = "Add leg";
-  document.getElementById("btn-whatif-cancel-edit").hidden = true;
+  (document.getElementById("btn-whatif-cancel-edit") as HTMLElement).hidden = true;
   ["wi-ticker", "wi-expiry", "wi-strike", "wi-cost"].forEach(id => {
-    const el = document.getElementById(id);
+    const el = document.getElementById(id) as HTMLInputElement | null;
     if (el) el.value = "";
   });
-  document.getElementById("wi-contracts").value = "-1";
-  document.getElementById("wi-expiry").innerHTML = '<option value="">Expiry…</option>';
-  document.getElementById("wi-strike").innerHTML = '<option value="">Strike…</option>';
+  (document.getElementById("wi-contracts") as HTMLInputElement).value = "-1";
+  (document.getElementById("wi-expiry") as HTMLSelectElement).innerHTML = '<option value="">Expiry…</option>';
+  (document.getElementById("wi-strike") as HTMLSelectElement).innerHTML = '<option value="">Strike…</option>';
   renderWhatIfList();
 }
 
@@ -357,20 +356,22 @@ function renderWhatIfList() {
     return;
   }
   list.innerHTML = state.hypothetical.map((h, i) =>
-    `<span class="whatif-tag${state.whatifEditIndex === i ? " editing" : ""}" data-wi-edit="${i}" title="Click to edit">${h.ticker} ${h.optType} $${h.strike} ${h.expiry} ${h.contracts > 0 ? "+" : ""}${h.contracts}c <button type="button" style="border:none;background:none;color:var(--err-tx);cursor:pointer;padding:0 4px" data-wi-rm="${i}" title="Remove">✕</button></span>`
+    `<span class="whatif-tag${state.whatifEditIndex === i ? " editing" : ""}" data-wi-edit="${i}" title="Click to edit">${h.ticker} ${h.optType} $${h.strike} ${h.expiry} ${(h.contracts as number) > 0 ? "+" : ""}${h.contracts}c <button type="button" style="border:none;background:none;color:var(--err-tx);cursor:pointer;padding:0 4px" data-wi-rm="${i}" title="Remove">✕</button></span>`
   ).join("");
   list.querySelectorAll("[data-wi-edit]").forEach(tag => {
-    tag.addEventListener("click", (e) => {
-      if (e.target.closest("[data-wi-rm]")) return;
-      beginEditWhatIfLeg(parseInt(tag.dataset.wiEdit, 10));
+    const tagEl = tag as HTMLElement;
+    tagEl.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("[data-wi-rm]")) return;
+      beginEditWhatIfLeg(parseInt(tagEl.dataset.wiEdit, 10));
     });
   });
   list.querySelectorAll("[data-wi-rm]").forEach(btn => {
-    btn.addEventListener("click", (e) => {
+    const btnEl = btn as HTMLElement;
+    btnEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      const idx = parseInt(btn.dataset.wiRm, 10);
+      const idx = parseInt(btnEl.dataset.wiRm, 10);
       if (state.whatifEditIndex === idx) cancelWhatIfEdit();
-      state.hypothetical.splice(idx, 1);
+      state.hypothetical.splice(idx, 1);  // btnEl: HTMLElement
       renderWhatIfList();
       applyWhatIfGreeks();
       state.riskMatrixLoaded = false;
@@ -393,16 +394,16 @@ async function applyWhatIfGreeks() {
   });
   if (!ok || data.error) return;
   el.hidden = false;
-  const g = data.portfolio;
-  const deltaCh = (g.delta - (state.greeks?.portfolio?.delta || 0)).toFixed(0);
+  const g = data.portfolio as WhatIfGreeksResult;
+  const deltaCh = (g.delta - ((state.greeks?.portfolio as any)?.delta || 0)).toFixed(0);
   el.innerHTML = `
-    <div class="stat" style="border-left:3px solid #90caf9"><div class="stat-label">What-if Δ (book+hypo)</div><div class="stat-val" style="font-size:16px;color:#90caf9">${g.delta.toFixed(0)} <span style="font-size:11px;color:var(--tx3)">(${deltaCh >= 0 ? "+" : ""}${deltaCh})</span></div></div>
+    <div class="stat" style="border-left:3px solid #90caf9"><div class="stat-label">What-if Δ (book+hypo)</div><div class="stat-val" style="font-size:16px;color:#90caf9">${g.delta.toFixed(0)} <span style="font-size:11px;color:var(--tx3)">(${+deltaCh >= 0 ? "+" : ""}${deltaCh})</span></div></div>
     <div class="stat" style="border-left:3px solid #f5c518"><div class="stat-label">What-if Θ</div><div class="stat-val" style="font-size:16px;color:#f5c518">$${g.theta.toFixed(0)}</div></div>
     <div class="stat" style="border-left:3px solid #a5d6a7"><div class="stat-label">What-if V</div><div class="stat-val" style="font-size:16px;color:#a5d6a7">$${g.vega.toFixed(0)}</div></div>`;
 }
 
 function updateFetchButtonState() {
-  const btn = document.getElementById("btn-fetch");
+  const btn = document.getElementById("btn-fetch") as HTMLButtonElement | null;
   if (!btn) return;
   const canFetch = !!(state.rawPosTexts && state.rawPosTexts.length);
   btn.disabled = !canFetch;
@@ -429,7 +430,7 @@ function setFetchButtonLoading(loading) {
 }
 
 function saveSession() {
-  const brokerBtn = document.querySelector(".broker-btn.active");
+  const brokerBtn = document.querySelector(".broker-btn.active") as HTMLElement | null;
   let simForSave = state.simResult;
   if (simForSave?.portfolio_pnl) {
     simForSave = { ...simForSave };
@@ -515,9 +516,9 @@ function restoreSession() {
     state.journalShowAssignmentLegs = !!data.journalShowAssignmentLegs;
     if (data.broker) {
       document.querySelectorAll(".broker-btn").forEach(b => {
-        b.classList.toggle("active", b.dataset.broker === data.broker);
+        (b as HTMLElement).classList.toggle("active", (b as HTMLElement).dataset.broker === data.broker);
       });
-      document.querySelectorAll("[id^='instr-']").forEach(el => el.hidden = true);
+      document.querySelectorAll("[id^='instr-']").forEach(el => { (el as HTMLElement).hidden = true; });
       const instr = document.getElementById(`instr-${data.broker}`);
       if (instr) instr.hidden = false;
       updateDropZoneHints(data.broker);
@@ -598,11 +599,12 @@ function optionMarkKey(ticker, expiry, optType, strike) {
 
 // Broker selector
 document.querySelectorAll(".broker-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
+  const btnEl = btn as HTMLElement;
+  btnEl.addEventListener("click", () => {
     document.querySelectorAll(".broker-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    const broker = btn.dataset.broker;
-    document.querySelectorAll("[id^='instr-']").forEach(el => el.hidden = true);
+    btnEl.classList.add("active");
+    const broker = btnEl.dataset.broker;
+    document.querySelectorAll("[id^='instr-']").forEach(el => { (el as HTMLElement).hidden = true; });
     const instrEl = document.getElementById(`instr-${broker}`);
     if (instrEl) instrEl.hidden = false;
     updateDropZoneHints(broker);
@@ -611,10 +613,11 @@ document.querySelectorAll(".broker-btn").forEach(btn => {
 
 // View toggle (ticker vs expiry)
 document.querySelectorAll(".view-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
+  const btnEl = btn as HTMLElement;
+  btnEl.addEventListener("click", () => {
     document.querySelectorAll(".view-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    state.viewMode = btn.dataset.view;
+    btnEl.classList.add("active");
+    state.viewMode = btnEl.dataset.view;
     if (state.portfolio) renderPortfolio(state.portfolio, !!state.marketData);
   });
 });
@@ -651,7 +654,7 @@ function loadFiles(fileList, dz, stateKey) {
 }
 
 function getMergeMode() {
-  const active = document.querySelector(".merge-btn.active");
+  const active = document.querySelector(".merge-btn.active") as HTMLElement | null;
   return active ? active.dataset.merge : "union";
 }
 
@@ -848,4 +851,3 @@ document.querySelectorAll(".broker-btn").forEach(btn => {
 if (document.querySelector(".broker-btn[data-broker='schwab'].active")) {
   checkSchwabStatus();
 }
-

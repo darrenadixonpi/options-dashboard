@@ -136,6 +136,37 @@ declare global {
     autoRefresh: { enabled: boolean; intervalMin: number };
     pnlHistRange?: string;
     pnlHistCustom?: { lo: number; hi: number } | null;
+    wiStrikeRows?: Record<string, unknown>[];
+  }
+
+  interface TickerPathData {
+    model?: string;
+    shares?: number;
+    adjCost?: number;
+    dates?: string[];
+    p5?: number[];
+    p95?: number[];
+    p75?: number[];
+    p25?: number[];
+    p50?: number[];
+    mean?: number[];
+    strikes?: Array<{ strike: number; label: string; isEquity?: boolean; lineType?: string; [k: string]: unknown }>;
+    breakevens?: Array<{ value: number; label: string; beType?: string; [k: string]: unknown }>;
+    [key: string]: unknown;
+  }
+
+  interface WhatIfGreeksResult {
+    delta: number;
+    theta: number;
+    vega: number;
+    portfolio?: PnlStats;
+    [key: string]: unknown;
+  }
+
+  interface AttributionData {
+    byTicker?: Record<string, { pricePnl: number; thetaPnl: number; vegaPnl: number; total: number }>;
+    total?: number;
+    [key: string]: unknown;
   }
 
   interface PositionRow {
@@ -152,10 +183,15 @@ declare global {
     [key: string]: unknown;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   interface FetchJsonResult {
     ok: boolean;
     status?: number;
-    data: Record<string, unknown> & Partial<SimulateResult>;
+    // Typed as `any` intentionally: each endpoint returns a different shape;
+    // callers are responsible for narrowing. Using `unknown` would require casts
+    // at every call site which adds noise without safety on a global-scope script.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: any;
     error?: string;
   }
 
@@ -164,6 +200,12 @@ declare global {
     resize?(): void;
     toBase64Image?(type?: string): string;
   }
+
+  // ─── Session constants (04-state.js) ─────────────────────────────────────
+  const SESSION_KEY: string;
+  const DEFAULT_ALERT_THRESHOLDS: AlertThresholds;
+  // eslint-disable-next-line prefer-const
+  let autoRefreshTimer: ReturnType<typeof setInterval> | null;
 
   // ─── Global state + chart registry ───────────────────────────────────────
   const state: AppState & { _journalGroupExpanded?: Record<string, boolean> };
@@ -184,14 +226,23 @@ declare global {
 
   // ─── Portfolio / positions ────────────────────────────────────────────────
   function renderPortfolio(portfolio: Record<string, unknown>, hasMarket: boolean): void;
+  function buildPortfolio(
+    positions: PositionRow[],
+    fills: Record<string, unknown>[],
+    marketData: Record<string, Record<string, unknown>> | null
+  ): Record<string, unknown>;
   function jumpToLeg(legKey: string | null, ticker?: string): void;
   function findOpenLegKey(t: Record<string, unknown>): string | null;
   function normalizeStrategyLabel(label: string | null | undefined): string;
+  function renderPositionsRail(): void;
+  function persistAttributionSnapshot(): Promise<void>;
 
   // ─── Risk / what-if ───────────────────────────────────────────────────────
   function loadRiskMatrix(): void;
   function goToRiskMatrix(): void;
   function renderWhatIfList(): void;
+  function enableRiskTab(): void;
+  function renderRiskExpiryCheckpoints(...args: unknown[]): void;
   function applyWhatIfGreeks(): Promise<void>;
   function loadWhatIfExpiries(ticker: string): Promise<void>;
   function loadWhatIfStrikes(ticker: string, expiry: string, optType: string): Promise<void>;
@@ -214,12 +265,13 @@ declare global {
   // ─── Simulation ──────────────────────────────────────────────────────────
   function setupSimNavScrollSpy(): void;
   function jumpToSimTicker(tkr: string): void;
+  function chartExportBtn(canvasId: string, filename: string): string;
 
   // ─── Snapshots ───────────────────────────────────────────────────────────
   function loadSnapshotHistoryUI(): void;
   function refreshCumulativePnlChart(): void;
 
-  // ─── Session ─────────────────────────────────────────────────────────────
+  // ─── Session ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   function saveSession(): void;
   function destroyChart(id: string): void;
 
@@ -231,10 +283,6 @@ declare global {
   }): Record<string, any>;
   function deepMergeChartOpts(a: Record<string, any>, b: Record<string, any>): Record<string, any>;
   function layoutHorizontalLineLabels(
-    lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
-    yMin: number, yMax: number
-  ): Array<{ y: number; content: string; position?: string; yAdjust?: number; [k: string]: any }>;
-  function buildHorizontalLineAnnotations(
     lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
     yMin: number, yMax: number,
     styleFor: (item: any) => any

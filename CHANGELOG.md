@@ -4,6 +4,12 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased] — Phase 7 in progress
 
+### TypeScript pass 2 (Phase 3)
+- **Removed `@ts-nocheck`** from `05-session-api.ts` and `08-simulate.ts` — both pilot modules now fully type-checked
+- **`types.ts` additions** — `TickerPathData`, `WhatIfGreeksResult`, `AttributionData` interfaces; `SESSION_KEY`, `DEFAULT_ALERT_THRESHOLDS`, `autoRefreshTimer`, and missing function declarations added to `declare global`; `FetchJsonResult.data` typed as `any` (intentional — each endpoint returns a different shape)
+- **DOM narrowing** — `getElementById` results cast to `HTMLButtonElement | null`, `HTMLInputElement | null`, `HTMLSelectElement | null` at every call site; `querySelectorAll` results cast via local `el as HTMLElement` before `.dataset` access; `EventTarget` narrowed to `HTMLElement` before `.closest()` calls
+- **`typecheck:pilot` passes at 0 errors**; `npm run build` emits clean bundle
+
 ### Order management (7.2)
 - **`GET/POST /api/orders`** — create and list draft orders with ticker, strategy label, legs JSON, and notes
 - **`PUT/DELETE /api/orders/<id>`** — update or delete an order
