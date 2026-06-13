@@ -517,15 +517,16 @@ class TestFrontendBundle:
         mod = self._load_frontend_scripts()
         order = mod._parse_module_order()
         assert order[0] == "01-parsers.js"
-        assert order[-1] == "10-phase7.js"
+        assert order[-1] == "13-ibkr.js"
         assert "03-chart-utils.js" in order
         assert "12-snapshots.js" in order
-        assert len(order) == 14
+        assert "10-phase7.js" in order
+        assert len(order) == 15
 
     def test_render_script_block_modes(self):
         mod = self._load_frontend_scripts()
         modules = mod.render_script_block("modules")
-        assert modules.count("<script") == 14
+        assert modules.count("<script") == 15
         assert "01-parsers.js" in modules
         assert "05-session-api.js" in modules
         bundle = mod.render_script_block("bundle")

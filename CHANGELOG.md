@@ -2,6 +2,19 @@
 
 All notable releases of Options Dashboard.
 
+## [Unreleased]
+
+### IBKR Flex Web Service sync
+- **`ibkr_flex_client.py`** — `IBKRFlexClient`: token + Activity-query positions sync over the Flex Web Service (two-step SendRequest→GetStatement with poll/backoff), XML→canonical-leg normalizer, config persisted to a local gitignored `ibkr_flex.json` (env-overridable)
+- **`IBKRAdapter.sync_positions()`** — IBKR is now a CSV broker that *also* pulls via the Flex API; `supports_api_sync` + an `api_sync` capability flag added to the adapter layer (`brokers/base.py`)
+- **`GET /api/ibkr/status`, `POST /api/ibkr/config`, `POST /api/ibkr/sync`, `POST /api/ibkr/disconnect`** — mirror `/api/schwab/*`; the sync response is a drop-in for `buildPortfolio()`
+- **In-app panel** — `static/js/13-ibkr.js` + an IBKR import-drawer panel: inline setup steps, a token/query-id form (saved locally, no `.env` editing), and one-click Sync/Disconnect
+- **`coerce_expiry`** now also parses compact `YYYYMMDD` (IBKR Flex date format)
+- **Tests** — `tests/test_ibkr_flex.py` (config, XML normalization, two-step fetch + poll, error mapping, Flask routes) + `tests/fixtures/ibkr_flex_statement.xml`
+- See [docs/IBKR_API.md](docs/IBKR_API.md)
+
+---
+
 ## [1.2.0] — 2026-06-13
 
 Major feature release consolidating Phases 4–7 on top of v1.1.0: broker integration (a Schwab OAuth API client plus a unified multi-broker adapter layer — live Schwab sync activates once the developer-app credentials are approved), background/async market data with yfinance resilience, order and rules management, tax-lot and VaR analytics, a journal overhaul, desktop/email notifications and CSV export, and completion of the TypeScript pilot pass.

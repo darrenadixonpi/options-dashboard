@@ -53,7 +53,9 @@ class TestRegistry:
         assert by_key["fidelity"]["source"] == "csv"
         assert by_key["fidelity"]["oauth"] is False
         for cap in by_key.values():
-            assert set(cap) == {"key", "label", "source", "positions", "history", "oauth"}
+            assert set(cap) == {"key", "label", "source", "positions", "history", "oauth", "api_sync"}
+        assert by_key["ibkr"]["api_sync"] is True   # CSV broker + Flex Web Service sync
+        assert by_key["fidelity"]["api_sync"] is False
 
     def test_get_adapter_case_insensitive(self):
         from brokers import get_adapter

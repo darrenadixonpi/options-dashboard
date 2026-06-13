@@ -1,8 +1,9 @@
-"""Interactive Brokers adapter — IBKR Flex / Activity Statement CSV.
+"""Interactive Brokers adapter — IBKR Flex / Activity Statement CSV + Flex Web Service API.
 
-Python ports of ``parseIBKRPositions`` / ``parseIBKRHistory`` in
-``static/js/01-parsers.js``. IBKR layouts are column-named (not positional), so
-headers are detected dynamically.
+CSV parsing ports `parseIBKRPositions` / `parseIBKRHistory` from
+`static/js/01-parsers.js`. The API path (`sync_positions`) pulls the same Activity
+statement over the Flex Web Service via `ibkr_flex_client.py` — see docs/IBKR_API.md.
+IBKR layouts are column-named (not positional), so headers are detected dynamically.
 """
 
 from __future__ import annotations
@@ -37,8 +38,22 @@ class IBKRAdapter(BrokerAdapter):
     supports_positions = True
     supports_history = True
     supports_oauth = False
+    supports_api_sync = True  # via the Flex Web Service (token, not OAuth)
 
-    # ── Positions ──────────────────────────────────────────────────────────
+    # ── API sync (Flex Web Service) ────────────────────────────────────────
+    def sync_positions(self) -> list[dict[str, Any]]:
+        # Lazy import keeps `import brokers` working without `requests`.
+        from ibkr_flex_client import get_ibkr_flex_client
+        return get_ibkr_flex_client().get_positions()
+
+    def status(self) -> dict[str, Any]:
+        try:
+            from ibkr_flex_client import get_ibkr_flex_client
+            return get_ibkr_flex_client().status()
+        except Exception as exc:  # pragma: no cover - defensive
+            return {"configured": False, "authenticated": False, "source": "ibkr_flex", "error": str(exc)}
+
+    # ── Positions (CSV) ────────────────────────────────────────────────────
     def parse_positions(self, text: str) -> list[dict[str, Any]]:
         lines = text.replace("﻿", "").replace("\r", "").split("\n")
         hdr_idx = find_header_row(lines, ["symbol", "quantity"])
@@ -105,7 +120,7 @@ class IBKRAdapter(BrokerAdapter):
                 legs.append(leg)
         return legs
 
-    # ── History (opening fills) ────────────────────────────────────────────
+    # ── History (opening fills, CSV) ───────────────────────────────────────
     def parse_history(self, text: str) -> list[dict[str, Any]]:
         lines = text.replace("﻿", "").replace("\r", "").split("\n")
         hdr_idx = find_header_row(lines, ["symbol", "quantity"])
@@ -118,7 +133,6 @@ class IBKRAdapter(BrokerAdapter):
         price_i = header_col_index(headers, "t. price", "tradeprice", "trade price", "price")
         code_i = header_col_index(headers, "code")
         side_i = header_col_index(headers, "buy/sell", "buy/sell indicator")
-        sec_i = header_col_index(headers, "asset category", "sectype", "assetclass")
         exp_i = header_col_index(headers, "expiry", "expiration", "exp")
         strike_i = header_col_index(headers, "strike")
         right_i = header_col_index(headers, "put/call", "right")

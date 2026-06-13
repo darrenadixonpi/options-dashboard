@@ -4481,6 +4481,68 @@ def broker_positions(key):
         return jsonify({"error": str(e)}), 500
 
 
+# ─── IBKR Flex Web Service routes ─────────────────────────────────────────────
+# Token-based positions sync (no OAuth, no gateway). Config saved to a local
+# gitignored file via /api/ibkr/config so the UI panel never touches .env.
+
+from ibkr_flex_client import IBKRFlexError, get_ibkr_flex_client
+
+
+@app.route("/api/ibkr/status")
+def ibkr_status():
+    """Return IBKR Flex connection status (configured? which query id?)."""
+    try:
+        return jsonify(get_ibkr_flex_client().status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ibkr/config", methods=["POST"])
+def ibkr_config():
+    """Save the Flex token + Activity query id to the local config file.
+
+    Body: { "token": "...", "query_id": "..." }
+    """
+    try:
+        body = request.json or {}
+        token = (body.get("token") or "").strip()
+        query_id = (body.get("query_id") or "").strip()
+        if not token or not query_id:
+            return jsonify({"error": "Both 'token' and 'query_id' are required"}), 400
+        get_ibkr_flex_client().save_config(token, query_id)
+        return jsonify({"ok": True, "status": get_ibkr_flex_client().status()})
+    except IBKRFlexError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ibkr/sync", methods=["POST"])
+def ibkr_sync():
+    """Fetch positions from the IBKR Flex Web Service; same shape as /api/schwab/sync."""
+    try:
+        positions = get_ibkr_flex_client().get_positions()
+        return jsonify({
+            "positions": positions,
+            "position_count": len(positions),
+            "synced_at": datetime.now().isoformat(),
+        })
+    except IBKRFlexError as e:
+        return jsonify({"error": str(e)}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ibkr/disconnect", methods=["POST"])
+def ibkr_disconnect():
+    """Delete the local IBKR Flex config file."""
+    try:
+        get_ibkr_flex_client().clear_config()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ─── Tax lot routes (Phase 7.5) ───────────────────────────────────────────────
 
 @app.route("/api/tax-lots/compute", methods=["POST"])

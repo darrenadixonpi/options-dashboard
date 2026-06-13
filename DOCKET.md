@@ -13,6 +13,7 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | **Schwab API registration** | In progress — waiting for developer app **Ready for Use** | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **Schwab API activation** | ⏳ **Blocked on credentials** — code is fully built (Phase 6). Once app is *Ready for Use*: add `SCHWAB_CLIENT_ID` + `SCHWAB_CLIENT_SECRET` to `.env`, restart server, click **Schwab → Connect Schwab Account** in the import drawer. | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **Schwab live CSV validation** | Deferred — user chose API-first path | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 4 |
+| **IBKR Flex Web Service** | ✅ Shipped (unreleased) — Flex client + adapter sync + in-app panel; pending live-token validation | [docs/IBKR_API.md](docs/IBKR_API.md) |
 
 ---
 
@@ -100,7 +101,7 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 | 1 | **Activate Schwab API sync** | Code built (Phase 6); add `SCHWAB_CLIENT_ID`/`SCHWAB_CLIENT_SECRET` once the developer app is *Ready for Use* — [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | 2 | **TypeScript expansion** | Convert remaining JS modules to TS (see Phase 3 remainder checklist) |
 | 3 | **Schwab/IBKR live CSV smoke** | Validate against real broker exports → parser fixes |
-| 4 | **Additional broker adapters** | Tastytrade / TD via the `brokers/` `BrokerAdapter` interface (7.1) |
+| 4 | **Additional broker adapters** | Tastytrade / others via the `brokers/` `BrokerAdapter` interface (Schwab + IBKR are the templates) |
 | 5 | **GitHub Releases page** | Draft a release for the `v1.2.0` tag |
 
 ---
@@ -158,6 +159,8 @@ Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm
 | [README.md](README.md) | Quick start, layout, limitations |
 | [DOCKET.md](DOCKET.md) | Roadmap, backlog, checklists (this file) |
 | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) | Schwab registration + v1.2 API plan |
+| [docs/IBKR_API.md](docs/IBKR_API.md) | IBKR Flex Web Service integration plan |
+| [docs/BROKER_TESTING.md](docs/BROKER_TESTING.md) | Step-by-step Schwab + IBKR sync verification |
 | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, MC, journal math |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [GITHUB.md](GITHUB.md) | Publish to GitHub |

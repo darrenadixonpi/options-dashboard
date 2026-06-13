@@ -11,6 +11,7 @@
 | **This file** | Install, run, stop server, Docker, brokers |
 | [DOCKET.md](DOCKET.md) | Roadmap, backlog, release checklist, moving the project |
 | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) | Schwab developer app registration + v1.2 API plan |
+| [docs/IBKR_API.md](docs/IBKR_API.md) | IBKR Flex Web Service integration plan |
 | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, Monte Carlo, journal math |
 | [CHANGELOG.md](CHANGELOG.md) | What changed per release |
 | [GITHUB.md](GITHUB.md) | Publish to GitHub (no password in chat — use token/`gh auth`) |
@@ -151,7 +152,7 @@ Module order lives in `tools/frontend-manifest.mjs`. See `static/js/README.md`.
 |--------|-----------|---------|--------|
 | **Fidelity** | ✓ | ✓ | **Validated** (primary v1.0 path) |
 | **Schwab** | ✓ | ✓ | CSV (fixtures); **OAuth API client built** — activate with credentials ([docs/SCHWAB_API.md](docs/SCHWAB_API.md)) |
-| **IBKR** | ✓ Flex | ✓ Flex | Experimental — fixture tests pass |
+| **IBKR** | ✓ Flex | ✓ Flex | CSV (fixtures) + **Flex Web Service API sync** — [docs/IBKR_API.md](docs/IBKR_API.md) |
 
 All brokers share one adapter layer: `brokers/` (`GET /api/brokers`, `POST /api/brokers/<key>/positions`) — see [brokers/README.md](brokers/README.md). CSV parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
 

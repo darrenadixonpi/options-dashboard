@@ -12,6 +12,7 @@ build/
 portfolio.db
 .env
 schwab_token.json
+ibkr_flex.json
 .options-dashboard.lock
 test-results/
 .DS_Store

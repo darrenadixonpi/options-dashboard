@@ -3,9 +3,10 @@
 The whole point of this layer is that adding a broker (Schwab, IBKR, Fidelity,
 Tastytrade, …) means writing one small ``BrokerAdapter`` subclass — no changes to
 ``app.py`` or the rest of the core. Every adapter, regardless of whether it pulls
-positions from an OAuth API (Schwab) or parses an exported CSV (Fidelity, IBKR),
-emits the *same* canonical "leg" dict so downstream code (``buildPortfolio``,
-greeks, simulation, tax lots) never has to care which broker the data came from.
+positions from an OAuth API (Schwab), a token API (IBKR Flex), or an exported CSV
+(Fidelity, IBKR), emits the *same* canonical "leg" dict so downstream code
+(``buildPortfolio``, greeks, simulation, tax lots) never has to care which broker
+the data came from.
 
 Canonical leg format (identical to what ``schwab_client._normalize_position``
 already produces, so existing consumers keep working unchanged):
@@ -25,7 +26,7 @@ already produces, so existing consumers keep working unchanged):
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import date, datetime
 from typing import Any
 
@@ -65,8 +66,8 @@ def coerce_expiry(value: Any) -> str | None:
     """Normalize an expiry (date, datetime, or string) to an ISO ``YYYY-MM-DD``.
 
     Accepts ``datetime``/``date`` objects, ISO strings (with or without a time
-    component / timezone), and common ``MM/DD/YYYY`` broker strings. Returns
-    ``None`` if it cannot be parsed.
+    component / timezone), compact ``YYYYMMDD`` (IBKR Flex), and common
+    ``MM/DD/YYYY`` broker strings. Returns ``None`` if it cannot be parsed.
     """
     if value is None or value == "":
         return None
@@ -92,6 +93,13 @@ def coerce_expiry(value: Any) -> str | None:
         try:
             datetime.strptime(candidate, "%Y-%m-%d")
             return candidate
+        except ValueError:
+            pass
+
+    # Compact YYYYMMDD (IBKR Flex statements, some broker exports).
+    if len(s) == 8 and s.isdigit():
+        try:
+            return datetime.strptime(s, "%Y%m%d").strftime("%Y-%m-%d")
         except ValueError:
             pass
 
@@ -200,6 +208,10 @@ class BrokerAdapter(ABC):
       methods (:meth:`status`, :meth:`get_auth_url`, :meth:`handle_callback`,
       :meth:`disconnect`).
 
+    A CSV broker that *also* offers an API pull (e.g. IBKR via Flex Web Service)
+    keeps ``source = "csv"`` and sets ``supports_api_sync = True`` plus
+    :meth:`sync_positions`.
+
     Callers should use the unified :meth:`get_positions` entry point and
     :meth:`capabilities` for discovery; they never need to know the source.
     """
@@ -210,6 +222,7 @@ class BrokerAdapter(ABC):
     supports_positions: bool = True
     supports_history: bool = False
     supports_oauth: bool = False
+    supports_api_sync: bool = False   # CSV broker that can also pull via an API
 
     # ── Discovery ──────────────────────────────────────────────────────────
     def capabilities(self) -> dict[str, Any]:
@@ -221,6 +234,7 @@ class BrokerAdapter(ABC):
             "positions": self.supports_positions,
             "history": self.supports_history,
             "oauth": self.supports_oauth,
+            "api_sync": self.source == "api" or self.supports_api_sync,
         }
 
     # ── Unified position ingestion ─────────────────────────────────────────
@@ -228,11 +242,11 @@ class BrokerAdapter(ABC):
         """Return canonical legs.
 
         If ``csv_text`` is provided, parse it (works for CSV-export-capable
-        brokers). Otherwise, for API brokers, pull live positions.
+        brokers). Otherwise, for API-capable brokers, pull live positions.
         """
         if csv_text and csv_text.strip():
             return self.parse_positions(csv_text)
-        if self.source == "api":
+        if self.source == "api" or self.supports_api_sync:
             return self.sync_positions()
         raise BrokerError(f"{self.label or self.key}: CSV text required to parse positions")
 

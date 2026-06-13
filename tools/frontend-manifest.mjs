@@ -14,6 +14,7 @@ export const MODULE_ORDER = [
   "11-roll-catalysts-init.js",
   "12-snapshots.js",
   "10-phase7.js",
+  "13-ibkr.js",
 ];
 
 export const CHART_CDN = [
