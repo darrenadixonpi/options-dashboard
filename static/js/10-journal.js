@@ -191,59 +191,69 @@ function renderTradeHistory(data) {
     html += `<th class="sortable${active ? " sort-active" : ""}" data-sort-col="${col.key}">${col.label}${arrow}</th>`;
   }
   html += '<th></th></tr></thead><tbody>';
-  for (const t of trades) {
-    const isRollOpen = !!t.isRollOpenRef;
-    const pnlColor = isRollOpen ? "var(--tx3)" : (t.pnl >= 0 ? "var(--ok-tx)" : "var(--err-tx)");
-    const openLeg = findOpenLegKey(t);
-    const rollOpenTip = isRollOpen && t.linkedRollClose
-      ? `Roll open leg · linked close ${t.linkedRollClose.ticker} ${t.linkedRollClose.closeDate || ""}${t.linkedRollClose.rollLabel ? " · " + t.linkedRollClose.rollLabel : ""}`
-      : "";
-    const rollDetail = t.isRoll && (t.rollLabel || t.rollTo)
-      ? (t.rollLabel || `$${t.strike ?? "?"} → $${t.rollTo?.strike ?? "?"}`)
-      : "";
-    const rollTip = t.isRoll && t.rollTo
-      ? `Roll ${rollDetail} · net ${fmtDollar(t.rollNetPnl ?? t.pnl)}${t.legPnl != null ? ` · leg ${fmtDollar(t.legPnl)}` : ""} · opened ${t.rollTo.openDate || ""} @ $${t.rollTo.openPrice ?? ""}`
-      : "";
-    const assignTip = t.linkedEquity
-      ? `Stock: ${t.linkedEquity.qty} sh @ $${t.linkedEquity.price ?? "?"} on ${t.linkedEquity.date}`
-      : t.linkedOption
-        ? `Option: ${t.linkedOption.optType} $${t.linkedOption.strike ?? ""} ${t.linkedOption.closeTypeLabel || t.linkedOption.closeType || ""} (${t.linkedOption.qty}c)`
+
+  const groups = _buildJournalGroups(trades);
+  // Track which group IDs are expanded (persisted across re-renders in state)
+  if (!state._journalGroupExpanded) state._journalGroupExpanded = {};
+
+  for (const g of groups) {
+    if (g.isSolo) {
+      // Solo trade — render exactly as before
+      html += _renderLegRow(g.trades[0]);
+    } else {
+      // Multi-leg strategy group — render collapsible header + leg rows
+      const gid = g.id;
+      const expanded = !!state._journalGroupExpanded[gid];
+      const pnlColor = g.totalPnl >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+      const legCount = g.trades.length;
+      const dateRange = g.crossDay
+        ? `${g.closeDates[0]} – ${g.closeDates[g.closeDates.length - 1]}`
+        : g.closeDate;
+      const crossDayBadge = g.crossDay
+        ? `<span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(32,199,199,0.15);color:var(--accent);margin-left:5px" title="Legs closed on different dates">multi-day</span>`
         : "";
-    const assignRollTip = t.assignmentRollup
-      ? `Assignment rollup: opt ${fmtDollar(t.optionLegPnl ?? 0)} + stock ${fmtDollar(t.equityLegPnl ?? 0)} = ${fmtDollar(t.combinedPnl ?? t.pnl)}`
-      : assignTip;
-    const warnTip = (t.warnings || []).map(w => w.msg).join(" · ");
-    const flags = [];
-    if (t.isRoll && rollDetail) {
-      flags.push(`<span class="hist-roll-inline">${esc(rollDetail)}</span>`);
-    } else if (t.isRoll) {
-      flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-roll" tabindex="0">↻</span><span class="hist-tip">${esc(rollTip)}</span></span>`);
+      const outlierBadge = g.outlier
+        ? `<span class="hist-tip-wrap"><span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(255,193,7,0.18);color:var(--warn-tx);cursor:help" tabindex="0">outlier</span><span class="hist-tip">P&L is &gt;2σ from mean for this strategy type</span></span>`
+        : "";
+      const expandIcon = expanded ? "▾" : "▸";
+      html += `<tr class="hist-group-hdr${expanded ? " expanded" : ""}" data-group-toggle="${gid}" style="cursor:pointer;background:var(--bg2)" title="Click to ${expanded ? "collapse" : "expand"} ${legCount} legs">
+        <td colspan="8" style="padding:6px 8px">
+          <span style="font-size:11px;color:var(--tx3);margin-right:6px">${expandIcon}</span>
+          <span style="font-weight:500">${esc(g.ticker)}</span>
+          <span style="color:var(--tx3);font-size:11px;margin:0 6px">·</span>
+          <span style="font-size:11px;color:var(--tx2)">${esc(normalizeStrategyLabel(g.strategy))}</span>
+          ${crossDayBadge}${outlierBadge}
+          <span style="color:var(--tx3);font-size:11px;margin-left:8px">${dateRange} · ${legCount} legs</span>
+        </td>
+        <td style="color:${pnlColor};font-weight:600;white-space:nowrap">${fmtDollar(g.totalPnl)}</td>
+        <td></td>
+      </tr>`;
+      for (const t of g.trades) {
+        html += _renderLegRow(t, { indent: true, suppressedStyle: expanded ? "" : "display:none" });
+      }
     }
-    if (t.linkedEquity || t.linkedOption) {
-      flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-link" tabindex="0">⇄</span><span class="hist-tip">${esc(assignRollTip)}</span></span>`);
-    }
-    if (t.warnings?.length) flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-warn" tabindex="0">!</span><span class="hist-tip">${esc(warnTip)}</span></span>`);
-    if (isRollOpen) flags.push(`<span class="hist-flag hist-flag-roll-open" title="Roll open reference">↗</span>`);
-    const closeLbl = isRollOpen
-      ? `<span class="hist-roll-inline">Roll Open</span>`
-      : t.isRoll && rollDetail
-      ? `<span class="hist-roll-inline">Roll · ${esc(rollDetail)}</span>`
-      : esc(t.closeTypeLabel || t.closeType || "—");
-    const pnlShown = isRollOpen
-      ? `<span style="color:var(--tx3)">—</span>`
-      : t.assignmentRollup
-      ? `<span class="hist-tip-wrap"><span>${fmtDollar(t.pnl)}</span><span class="hist-tip">${esc(assignRollTip)}</span></span>`
-      : t.isRoll && t.rollNetPnl != null
-      ? `<span class="hist-tip-wrap"><span>${fmtDollar(t.pnl)}</span><span class="hist-tip">Roll net ${fmtDollar(t.rollNetPnl)} · leg close ${fmtDollar(t.legPnl ?? t.pnl)}</span></span>`
-      : fmtDollar(t.pnl);
-    const rowTip = rollOpenTip || warnTip || rollTip || assignRollTip || (openLeg ? "Jump to open leg" : "Jump to ticker");
-    const rowClass = `hist-row-click${t.warnings?.length ? " hist-row-warn" : ""}${t.journalSuppress ? " hist-row-suppressed" : ""}${isRollOpen ? " hist-row-roll-open" : ""}`;
-    const rowPrefix = (t.journalSuppress || isRollOpen) ? "↳ " : "";
-    html += `<tr class="${rowClass}" data-hist-ticker="${t.ticker}" data-hist-leg="${openLeg || ""}" data-hist-assign="${t.assignmentRollup ? "1" : ""}" data-hist-close="${t.closeDate || ""}" title="${esc(rowTip)}"><td>${rowPrefix}${t.ticker}</td><td>${t.instrument === "equity" ? "Stock" : t.optType}</td><td>${esc(normalizeStrategyLabel(t.strategy))}</td><td>${closeLbl}</td><td>${t.openDate}</td><td>${t.closeDate}</td><td>${t.holdDays}</td><td>${t.qty}</td><td style="color:${pnlColor};font-weight:500">${pnlShown}</td><td style="white-space:nowrap">${flags.join(" ")}${openLeg ? '<span style="font-size:10px;color:var(--tx3);margin-left:4px">●</span>' : ""}</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById("history-table-container").innerHTML =
     `<div class="journal-table-scroll">${html}</div>`;
+
+  // Group expand/collapse
+  document.querySelectorAll("#history-table-container [data-group-toggle]").forEach(row => {
+    row.addEventListener("click", () => {
+      const gid = row.dataset.groupToggle;
+      state._journalGroupExpanded[gid] = !state._journalGroupExpanded[gid];
+      // Toggle sibling leg rows (immediately follow this header row)
+      let next = row.nextElementSibling;
+      const expanded = state._journalGroupExpanded[gid];
+      while (next && next.classList.contains("hist-row-leg")) {
+        next.style.display = expanded ? "" : "none";
+        next = next.nextElementSibling;
+      }
+      const icon = row.querySelector("span");
+      if (icon) icon.textContent = expanded ? "▾" : "▸";
+      row.classList.toggle("expanded", expanded);
+    });
+  });
 
   document.querySelectorAll("#history-table-container [data-sort-col]").forEach(th => {
     th.addEventListener("click", () => {
@@ -275,6 +285,126 @@ function renderTradeHistory(data) {
     const histTab = document.getElementById("tab-history");
     if (histTab && !histTab.hidden) drawCumulativePnlChart(getJournalTradesForChart());
   }
+}
+
+// ─── Journal v2: group helpers ───────────────────────────────────────────────
+
+/**
+ * Build strategy groups from a flat sorted trade list.
+ * Returns [{isSolo, id, trades, ticker, strategy, totalPnl, openDate, closeDate,
+ *           closeDates, crossDay, outlier, sortVal}]
+ */
+function _buildJournalGroups(trades) {
+  const byId = new Map();
+  for (const t of trades) {
+    const gid = t.strategyGroupId || `solo|${t.ticker}|${t.closeDate}|${t.symbol || ""}`;
+    if (!byId.has(gid)) byId.set(gid, []);
+    byId.get(gid).push(t);
+  }
+
+  const groups = [];
+  for (const [id, legs] of byId) {
+    const isSolo = id.startsWith("solo|") || legs.length === 1;
+    const totalPnl = legs.reduce((s, t) => s + journalTradePnl(t), 0);
+    const closeDates = [...new Set(legs.map(t => t.closeDate).filter(Boolean))].sort();
+    const openDates = legs.map(t => t.openDate).filter(Boolean).sort();
+    const crossDay = closeDates.length > 1;
+    const col = state.journalSort.col;
+    const dir = state.journalSort.dir === "asc" ? 1 : -1;
+    // Sort representative value for the group (used when reordering groups themselves)
+    let sortVal;
+    if (col === "pnl") sortVal = totalPnl * dir;
+    else if (col === "closeDate") sortVal = (closeDates[closeDates.length - 1] || "") + (dir < 0 ? "" : "");
+    else if (col === "openDate") sortVal = (openDates[0] || "");
+    else if (col === "ticker") sortVal = legs[0].ticker;
+    else if (col === "strategy") sortVal = legs[0].strategy || "";
+    else sortVal = closeDates[closeDates.length - 1] || "";
+
+    groups.push({
+      id, isSolo, trades: legs,
+      ticker: legs[0].ticker,
+      strategy: legs[0].strategy || "",
+      totalPnl,
+      openDate: openDates[0] || "",
+      closeDate: closeDates[closeDates.length - 1] || "",
+      closeDates,
+      crossDay,
+      outlier: false, // filled below
+      sortVal,
+    });
+  }
+
+  // Outlier detection — flag groups ≥2σ from mean per strategy (min 5 samples)
+  const byStrat = new Map();
+  for (const g of groups) {
+    const s = g.strategy || "Unknown";
+    if (!byStrat.has(s)) byStrat.set(s, []);
+    byStrat.get(s).push(g.totalPnl);
+  }
+  for (const g of groups) {
+    const vals = byStrat.get(g.strategy || "Unknown") || [];
+    if (vals.length < 5) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+    const sigma = Math.sqrt(variance);
+    if (sigma > 0 && Math.abs(g.totalPnl - mean) > 2 * sigma) g.outlier = true;
+  }
+
+  // Preserve the original (sorted) order trades arrived in, grouped
+  return groups;
+}
+
+/** Render one leg row (td cells) — used both for solo rows and multi-leg sub-rows */
+function _renderLegRow(t, opts = {}) {
+  const { indent = false, suppressedStyle = "" } = opts;
+  const isRollOpen = !!t.isRollOpenRef;
+  const pnlColor = isRollOpen ? "var(--tx3)" : (journalTradePnl(t) >= 0 ? "var(--ok-tx)" : "var(--err-tx)");
+  const openLeg = findOpenLegKey(t);
+  const rollDetail = t.isRoll && (t.rollLabel || t.rollTo)
+    ? (t.rollLabel || `$${t.strike ?? "?"} → $${t.rollTo?.strike ?? "?"}`)
+    : "";
+  const rollTip = t.isRoll && t.rollTo
+    ? `Roll ${rollDetail} · net ${fmtDollar(t.rollNetPnl ?? t.pnl)}${t.legPnl != null ? ` · leg ${fmtDollar(t.legPnl)}` : ""} · opened ${t.rollTo.openDate || ""} @ $${t.rollTo.openPrice ?? ""}`
+    : "";
+  const assignTip = t.linkedEquity
+    ? `Stock: ${t.linkedEquity.qty} sh @ $${t.linkedEquity.price ?? "?"} on ${t.linkedEquity.date}`
+    : t.linkedOption
+      ? `Option: ${t.linkedOption.optType} $${t.linkedOption.strike ?? ""} ${t.linkedOption.closeTypeLabel || t.linkedOption.closeType || ""} (${t.linkedOption.qty}c)`
+      : "";
+  const assignRollTip = t.assignmentRollup
+    ? `Assignment rollup: opt ${fmtDollar(t.optionLegPnl ?? 0)} + stock ${fmtDollar(t.equityLegPnl ?? 0)} = ${fmtDollar(t.combinedPnl ?? t.pnl)}`
+    : assignTip;
+  const warnTip = (t.warnings || []).map(w => w.msg).join(" · ");
+  const flags = [];
+  if (t.isRoll && rollDetail) {
+    flags.push(`<span class="hist-roll-inline">${esc(rollDetail)}</span>`);
+  } else if (t.isRoll) {
+    flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-roll" tabindex="0">↻</span><span class="hist-tip">${esc(rollTip)}</span></span>`);
+  }
+  if (t.linkedEquity || t.linkedOption) {
+    flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-link" tabindex="0">⇄</span><span class="hist-tip">${esc(assignRollTip)}</span></span>`);
+  }
+  if (t.warnings?.length) flags.push(`<span class="hist-tip-wrap"><span class="hist-flag hist-flag-warn" tabindex="0">!</span><span class="hist-tip">${esc(warnTip)}</span></span>`);
+  if (isRollOpen) flags.push(`<span class="hist-flag hist-flag-roll-open" title="Roll open reference">↗</span>`);
+  const closeLbl = isRollOpen
+    ? `<span class="hist-roll-inline">Roll Open</span>`
+    : t.isRoll && rollDetail
+    ? `<span class="hist-roll-inline">Roll · ${esc(rollDetail)}</span>`
+    : esc(t.closeTypeLabel || t.closeType || "—");
+  const pnlShown = isRollOpen
+    ? `<span style="color:var(--tx3)">—</span>`
+    : t.assignmentRollup
+    ? `<span class="hist-tip-wrap"><span>${fmtDollar(journalTradePnl(t))}</span><span class="hist-tip">${esc(assignRollTip)}</span></span>`
+    : t.isRoll && t.rollNetPnl != null
+    ? `<span class="hist-tip-wrap"><span>${fmtDollar(journalTradePnl(t))}</span><span class="hist-tip">Roll net ${fmtDollar(t.rollNetPnl)} · leg close ${fmtDollar(t.legPnl ?? journalTradePnl(t))}</span></span>`
+    : fmtDollar(journalTradePnl(t));
+  const rollOpenTip = isRollOpen && t.linkedRollClose
+    ? `Roll open leg · linked close ${t.linkedRollClose.ticker} ${t.linkedRollClose.closeDate || ""}${t.linkedRollClose.rollLabel ? " · " + t.linkedRollClose.rollLabel : ""}`
+    : "";
+  const rowTip = rollOpenTip || warnTip || rollTip || assignRollTip || (openLeg ? "Jump to open leg" : "Jump to ticker");
+  const rowClass = `hist-row-click${t.warnings?.length ? " hist-row-warn" : ""}${t.journalSuppress ? " hist-row-suppressed" : ""}${isRollOpen ? " hist-row-roll-open" : ""}${indent ? " hist-row-leg" : ""}`;
+  const rowPrefix = indent ? "  ↳ " : ((t.journalSuppress || isRollOpen) ? "↳ " : "");
+  return `<tr class="${rowClass}" style="${suppressedStyle}" data-hist-ticker="${t.ticker}" data-hist-leg="${openLeg || ""}" data-hist-assign="${t.assignmentRollup ? "1" : ""}" data-hist-close="${t.closeDate || ""}" title="${esc(rowTip)}"><td>${rowPrefix}${t.ticker}</td><td>${t.instrument === "equity" ? "Stock" : t.optType}</td><td>${esc(normalizeStrategyLabel(t.strategy))}</td><td>${closeLbl}</td><td>${t.openDate}</td><td>${t.closeDate}</td><td>${t.holdDays}</td><td>${t.qty}</td><td style="color:${pnlColor};font-weight:500">${pnlShown}</td><td style="white-space:nowrap">${flags.join(" ")}${openLeg ? '<span style="font-size:10px;color:var(--tx3);margin-left:4px">●</span>' : ""}</td></tr>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

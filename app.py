@@ -2264,10 +2264,51 @@ def _is_generic_strategy_label(label):
     return "-Leg" in label
 
 
-def _apply_cross_day_strategy_groups(closed_trades, window_days=7):
-    """Link spread legs closed on different dates within a short window."""
+_CROSS_DAY_WINDOW = int(os.environ.get("JOURNAL_CROSS_DAY_WINDOW_DAYS", "30"))
+
+
+def _apply_cross_day_strategy_groups(closed_trades, window_days=None):
+    """Link spread legs closed on different dates within a configurable window.
+
+    Groups legs with the same ticker and open_date (same opening trade) that
+    were closed on different dates — the common pattern when legging out of a
+    spread over multiple days.  Falls back to same-ticker proximity clustering
+    when open_date is unavailable.
+    """
+    if window_days is None:
+        window_days = _CROSS_DAY_WINDOW
+
+    # Pass 1: group by (ticker, openDate) — most reliable signal
+    by_open = defaultdict(list)
+    for i, t in enumerate(closed_trades):
+        if t.get("instrument") != "option" or t.get("isRoll"):
+            continue
+        if not _is_generic_strategy_label(t.get("strategy")):
+            continue
+        open_d = (t.get("openDate") or "")[:10]
+        if open_d:
+            by_open[(t["ticker"], open_d)].append(i)
+
+    already_grouped: set = set()
+    for indices in by_open.values():
+        if len(indices) < 2:
+            continue
+        # Only group if legs span different close dates within the window
+        dates = [pd.Timestamp(closed_trades[i]["closeDate"]) for i in indices]
+        if len({str(d) for d in dates}) < 2:
+            continue
+        spread = (max(dates) - min(dates)).days
+        if spread > window_days:
+            continue
+        _apply_strategy_label_to_indices(closed_trades, indices)
+        for i in indices:
+            already_grouped.add(i)
+
+    # Pass 2: proximity clustering for legs without a shared openDate
     by_ticker = defaultdict(list)
     for i, t in enumerate(closed_trades):
+        if i in already_grouped:
+            continue
         if t.get("instrument") != "option" or t.get("isRoll"):
             continue
         if not _is_generic_strategy_label(t.get("strategy")):

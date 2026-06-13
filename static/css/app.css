@@ -187,6 +187,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--tx);min-height:100
 .hist-row-roll-open{opacity:0.78;background:rgba(100,149,237,0.04)}
 .hist-row-roll-open td:first-child{color:var(--tx3);font-style:italic}
 .hist-flag-roll-open{color:var(--acc);font-size:11px;margin-left:2px}
+/* Journal v2 — strategy group rows */
+.hist-group-hdr{background:var(--bg2);border-top:2px solid var(--bd)}
+.hist-group-hdr:hover{background:var(--bg3,var(--bg2))}
+.hist-group-hdr td{padding:5px 8px;border-bottom:1px solid var(--bd)}
+.hist-row-leg td{padding:5px 8px 5px 18px;opacity:0.9;background:rgba(255,255,255,0.015);border-bottom:1px solid var(--bd2)}
+.hist-row-leg:hover{background:var(--bg2)}
+.hist-row-leg td:first-child{color:var(--tx3);font-size:10px}
 .chart-hdr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .chart-hdr-title{font-weight:500;font-size:14px}
 .chart-hdr-meta{font-size:11px;color:var(--tx3);font-family:var(--mono)}
