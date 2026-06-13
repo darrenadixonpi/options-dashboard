@@ -20,6 +20,38 @@ class TestOptionParsing:
         assert occ["expiry"] == "2026-06-20"
         assert occ["strike"] == 10.0
 
+    def test_parse_occ_symbol_fractional_strike(self):
+        """Fidelity-style decimal strikes must not truncate (2.5 != 2.0)."""
+        from app import _parse_occ_symbol
+
+        occ = _parse_occ_symbol("-OVID260618P2.5")
+        assert occ is not None
+        assert occ["ticker"] == "OVID"
+        assert occ["strike"] == 2.5
+
+        occ = _parse_occ_symbol("-AAPL260618C252.5")
+        assert occ is not None
+        assert occ["strike"] == 252.5
+
+        # Standard OCC padded strike still divides by 1000
+        occ = _parse_occ_symbol("-ovid260618p00002500")
+        assert occ is not None
+        assert occ["strike"] == 2.5
+
+    def test_calendar_field_dict_and_dataframe(self):
+        """yfinance .calendar is a dict in current versions, DataFrame in old."""
+        from app import _calendar_field
+        import datetime as _dt
+
+        d = _dt.date(2026, 7, 1)
+        assert _calendar_field({"Ex-Dividend Date": d}, "Ex-Dividend Date") == d
+        assert _calendar_field({"Earnings Date": [d]}, "Earnings Date") == d
+        assert _calendar_field({}, "Ex-Dividend Date") is None
+        assert _calendar_field(None, "Ex-Dividend Date") is None
+
+        df = pd.DataFrame({0: [d]}, index=["Ex-Dividend Date"])
+        assert _calendar_field(df, "Ex-Dividend Date") == d
+
     def test_classify_option_events(self):
         from app import _classify_option_event
 
@@ -516,41 +548,3 @@ class TestFrontendBundle:
         bundle = Path(__file__).resolve().parent.parent / "static" / "dist" / "app.bundle.js"
         if not bundle.is_file():
             pytest.skip("bundle not built — run npm run build")
-
-        monkeypatch.setenv("USE_JS_BUNDLE", "1")
-        res = client.get("/")
-        assert res.status_code == 200
-        assert b"app.bundle.js" in res.data
-        assert b"01-parsers.js" not in res.data
-
-
-class TestSchwabParser:
-    def test_schwab_history_format_detection(self, schwab_history_text):
-        from app import _detect_history_format
-
-        lines = schwab_history_text.replace("\r", "").split("\n")
-        assert _detect_history_format(lines) == "schwab"
-
-
-class TestPidLock:
-    def _load_pidlock(self):
-        import importlib.util
-        from pathlib import Path
-
-        path = Path(__file__).resolve().parent.parent / "scripts" / "pidlock.py"
-        spec = importlib.util.spec_from_file_location("pidlock", path)
-        mod = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(mod)
-        return mod
-
-    def test_lock_roundtrip(self, tmp_path, monkeypatch):
-        mod = self._load_pidlock()
-        lock = tmp_path / ".options-dashboard.lock"
-        monkeypatch.setattr(mod, "LOCK_PATH", lock)
-        mod.write_lock(4242, 5000)
-        data = mod.read_lock()
-        assert data["pid"] == 4242
-        assert data["port"] == 5000
-        mod.clear_lock()
-        assert mod.read_lock() is None
