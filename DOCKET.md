@@ -6,6 +6,16 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 
 ---
 
+## Active work
+
+| Track | Status | Doc |
+|-------|--------|-----|
+| **Schwab API registration** | In progress — waiting for developer app **Ready for Use** | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
+| **Schwab live CSV validation** | Deferred — user chose API-first path | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 4 |
+| **v1.2 implementation** | Not started — blocked on API app approval + OAuth scaffold | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 3 |
+
+---
+
 ## v1.0 baseline checklist
 
 | Item | Status |
@@ -17,9 +27,26 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | Packaging (start/stop scripts, Docker, bundle) | ✅ |
 | Smoke tests (`pytest tests/test_smoke.py`) | ✅ |
 | GitHub CI (`.github/workflows/ci.yml`) | ✅ |
-| Release notes + version tag | ✅ |
-| Schwab/IBKR **live** CSV validation | ⏳ User-deferred |
+| Release notes + version tag | ✅ (`v1.1.0` tagged on origin) |
+| GitHub Releases page | ⏳ Optional — tag exists; draft release on GitHub UI if desired |
+| Schwab/IBKR **live** CSV validation | ⏳ Deferred (API-first for Schwab) |
 | Journal complex multi-day strategy labels | ⏳ Partial (same-day spreads OK) |
+
+---
+
+## Phase 3 — remainder (post-pilot)
+
+Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 completion:
+
+| Item | Status |
+|------|--------|
+| Convert remaining JS modules to TypeScript | ⏳ |
+| Remove `@ts-nocheck` on pilot modules | ⏳ |
+| Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
+| Full ES modules / drop global script concat | ⏳ Backlog |
+| All 13 runtime modules typechecked under one `tsconfig` | ⏳ |
+
+Target: **v1.2+** alongside or after Schwab API (see Next up).
 
 ---
 
@@ -47,7 +74,7 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | **Alerts** | DTE, IVR, ex-div, book/ticker greeks, sim P(profit), stale marks, event log |
 | **Export & snapshots** | CSV/PNG everywhere, SQLite fetch log, attribution diff |
 | **Packaging** | `launch.py`, `stop.py`, Docker, optional PyInstaller, esbuild bundle |
-| **Brokers** | Fidelity (validated), Schwab + IBKR (fixture-tested) |
+| **Brokers** | Fidelity (validated), Schwab + IBKR (fixture-tested CSV) |
 
 ---
 
@@ -55,10 +82,11 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 
 | # | Item | Notes |
 |---|------|--------|
-| 1 | **TypeScript expansion** | Convert more modules; remove `@ts-nocheck` on pilot files |
-| 2 | **Schwab/IBKR live smoke** | Import real CSVs; fix parser edge cases |
-| 3 | **Journal strategy v2** | Multi-day spread/condor grouping; outlier flags |
-| 4 | **GitHub release** | Tag `v1.1.0`, optional Releases page |
+| 1 | **Schwab API sync** | OAuth + position pull; see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). Registration in progress. |
+| 2 | **TypeScript expansion** | See Phase 3 remainder checklist above |
+| 3 | **Schwab/IBKR live CSV smoke** | Fallback if API delayed; real exports → parser fixes |
+| 4 | **Journal strategy v2** | Multi-day spread/condor grouping; outlier flags |
+| 5 | **GitHub Releases page** | Optional UI release for `v1.1.0` (git tag already pushed) |
 
 ---
 
@@ -68,7 +96,43 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 - Close-event badge polish (BTC/STC/expired/assigned)
 - Roll-aware P&L in attribution
 - Full ES modules / drop global script concat
+- Schwab Market Data product (broker quotes instead of Yahoo)
+- IBKR API integration
 - Auth / multi-user hosting (out of scope for local desk)
+
+---
+
+## Relocating the project
+
+Everything plan-related lives in **git-tracked markdown** (this file, [CHANGELOG.md](CHANGELOG.md), [docs/SCHWAB_API.md](docs/SCHWAB_API.md)). Chat history is not required if these docs are current.
+
+### Copy with git (recommended)
+
+```powershell
+git clone https://github.com/darrenadixonpi/options-dashboard.git
+# or copy folder including .git, then: git pull
+```
+
+### Also copy manually (not in git)
+
+| Path | Contents |
+|------|----------|
+| `portfolio.db` | SQLite snapshots, alert log |
+| `.env` | Runtime overrides; future Schwab secrets |
+| Browser **localStorage** | Uploaded CSVs + session UI (export/import not built — re-import CSVs after move) |
+| `schwab_token.json` | Future OAuth token (when wired) |
+
+### Recreate after move
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+npm install
+npm run build
+# optional: copy portfolio.db and .env into project root
+start.bat
+```
+
+Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm run build` after TS edits).
 
 ---
 
@@ -77,13 +141,16 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | File | Purpose |
 |------|---------|
 | [README.md](README.md) | Quick start, layout, limitations |
+| [DOCKET.md](DOCKET.md) | Roadmap, backlog, checklists (this file) |
+| [docs/SCHWAB_API.md](docs/SCHWAB_API.md) | Schwab registration + v1.2 API plan |
 | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, MC, journal math |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [GITHUB.md](GITHUB.md) | Publish to GitHub |
 | [DOCKER.md](DOCKER.md) | Container deploy |
 | [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) | Pointer only (v0 spec archived) |
 | [static/js/README.md](static/js/README.md) | Frontend modules + TS pilot |
+| [docs/archive/IMPLEMENTATION_GUIDE_v0.md](docs/archive/IMPLEMENTATION_GUIDE_v0.md) | Historical pre-v1.0 spec |
 
 ---
 
-*Last updated: 2026-05-22 (v1.1.0)*
+*Last updated: 2026-05-22 (v1.1.0 + Schwab API planning)*

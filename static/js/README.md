@@ -22,6 +22,8 @@ Classic scripts loaded in order (shared global scope). Edit the module that matc
 
 **TypeScript pilot:** `05-session-api.ts` and `08-simulate.ts` are the source of truth. `npm run build` emits `05-session-api.js` and `08-simulate.js` for dev script tags (gitignored). CI and `start.bat` run the build automatically.
 
+**Phase 3 remainder** (convert all modules, drop `@ts-nocheck`, etc.): see [DOCKET.md](../../DOCKET.md).
+
 Styles: `../css/app.css`
 
 Module order is defined once in `tools/frontend-manifest.mjs` (used by the bundler and Flask bundle mode).

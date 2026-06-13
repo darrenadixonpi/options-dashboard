@@ -2,14 +2,15 @@
 
 **v1.1.0** — Local web app for visualizing your options portfolio with live market data, Greeks, Monte Carlo simulation, and trade journal.
 
-> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; live CSV validation is recommended before relying on them.
+> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parsers ship with fixture tests; Schwab API sync is planned for v1.2 — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md).
 
 ## Documentation
 
 | Doc | Use when you need… |
 |-----|---------------------|
 | **This file** | Install, run, stop server, Docker, brokers |
-| [DOCKET.md](DOCKET.md) | Roadmap, backlog, release checklist |
+| [DOCKET.md](DOCKET.md) | Roadmap, backlog, release checklist, moving the project |
+| [docs/SCHWAB_API.md](docs/SCHWAB_API.md) | Schwab developer app registration + v1.2 API plan |
 | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) | BSM, greeks, Monte Carlo, journal math |
 | [CHANGELOG.md](CHANGELOG.md) | What changed per release |
 | [GITHUB.md](GITHUB.md) | Publish to GitHub (no password in chat — use token/`gh auth`) |
@@ -89,6 +90,7 @@ options-app/
 ├── Dockerfile / docker-compose.yml
 ├── static/                # index.html, css/, js/ (13 runtime modules + TS pilot)
 ├── tests/                 # Smoke + API schema tests + CSV fixtures
+├── docs/                  # SCHWAB_API.md, archive/
 └── tools/                 # Frontend bundle + vendor scripts
 ```
 
@@ -147,7 +149,7 @@ Module order lives in `tools/frontend-manifest.mjs`. See `static/js/README.md`.
 | Broker | Positions | History | Status |
 |--------|-----------|---------|--------|
 | **Fidelity** | ✓ | ✓ | **Validated** (primary v1.0 path) |
-| **Schwab** | ✓ | ✓ | Experimental — fixture tests pass |
+| **Schwab** | ✓ | ✓ | CSV experimental (fixtures); **API sync planned v1.2** — [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **IBKR** | ✓ Flex | ✓ Flex | Experimental — fixture tests pass |
 
 Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown formats show a hint instead of silent failure.
@@ -159,7 +161,8 @@ Parsers: `static/js/01-parsers.js` + backend `/api/trade-history`. Unknown forma
 - **Journal** — Strategy labels work well for single-leg and same-day spreads; complex multi-day structures may appear as leg-level names
 - **Auto-refresh** — Updates spot, marks, and greeks only; full **Fetch** still required for sim, risk matrix, attribution, and events
 - **Session data** — Uploaded CSVs live in browser localStorage; `portfolio.db` stores server snapshots from fetches
-- **TypeScript** — Pilot only (`05-session-api`, `08-simulate`); remaining modules are JavaScript
+- **TypeScript** — Pilot only (`05-session-api`, `08-simulate`); remaining modules are JavaScript — see [DOCKET.md](DOCKET.md) Phase 3 remainder
+- **Schwab API** — Not wired in v1.1; registration + v1.2 plan in [docs/SCHWAB_API.md](docs/SCHWAB_API.md)
 
 ## Keyboard shortcuts
 

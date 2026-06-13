@@ -5,8 +5,9 @@ The original **pre-v1.0 build specification** lived here while features were bei
 | Need | Read |
 |------|------|
 | **What's next / backlog** | [DOCKET.md](DOCKET.md) |
+| **Schwab API (v1.2)** | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **How the math & pipeline work** | [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md) |
-| **Run, Docker, GitHub** | [README.md](README.md) · [DOCKER.md](DOCKER.md) · [GITHUB.md](GITHUB.md) |
+| **Run, Docker, GitHub, relocate** | [README.md](README.md) · [DOCKER.md](DOCKER.md) · [GITHUB.md](GITHUB.md) |
 | **Release history** | [CHANGELOG.md](CHANGELOG.md) |
 
 Historical copy of the old guide (line-number references may be stale):  

@@ -63,9 +63,9 @@ First baseline release for local desk use.
 ### Known limitations (v1.0)
 
 - **Fidelity** — Production-validated workflow
-- **Schwab / IBKR** — Parsers + fixture tests; live CSV validation still recommended
+- **Schwab / IBKR** — CSV parsers + fixture tests; Schwab API sync planned v1.2 ([docs/SCHWAB_API.md](docs/SCHWAB_API.md))
 - **Journal strategies** — Same-day spread grouping; complex multi-day structures may show as single-leg labels
-- **Data** — Yahoo Finance (rate limits, no broker API); local-only, no auth
+- **Data** — Yahoo Finance (rate limits, no broker API yet); local-only, no auth
 - **Auto-refresh** — Does not re-run simulation, risk matrix, or attribution snapshots
 
 ### Tests

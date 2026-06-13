@@ -20,7 +20,7 @@ No data leaves your machine. The application runs entirely on `localhost`.
 
 ## Pricing Model
 
-All option pricing uses the **Black-Scholes-Merton (BSM) framework** under the following assumptions: European exercise, zero continuous dividend yield, constant volatility, and a constant risk-free rate $r \approx 0.043$ (see `RISK_FREE` in `app.py`).
+All option pricing uses the **Black-Scholes-Merton (BSM) framework** under the following assumptions: European exercise, zero continuous dividend yield, constant volatility, and a constant risk-free rate $r \approx 0.037$ (default; override with the `RISK_FREE` environment variable — see `app.py`).
 
 Given spot price $S$, strike $K$, risk-free rate $r$, implied volatility $\sigma$ (annualized, in decimal form — e.g. 1.888 for 188.8%), and time to expiry $T$ (in years):
 
@@ -100,8 +100,8 @@ This normalizes each ticker's delta by its price ratio to SPY and its systematic
 
 Each ticker is automatically classified as either **Geometric Brownian Motion (GBM)** or **Merton Jump-Diffusion** based on two criteria evaluated independently:
 
-1. **IV/HV ratio ≥ 1.5** — implied volatility significantly exceeds realized 20-day historical volatility (annualized via $\sigma_{\text{HV}} = \hat\sigma_{\text{daily}} \times \sqrt{252}$), suggesting the market prices in discontinuous event risk not captured by recent realized moves.
-2. **10-day absolute return ≥ 36%** — defined as $|S_t / S_{t-10} - 1| \geq 0.36$, indicating a recent jump-like move.
+1. **IV/HV ratio ≥ 1.8** (`IV_HV_RATIO_THRESHOLD`) — implied volatility significantly exceeds realized 20-day historical volatility (annualized via $\sigma_{\text{HV}} = \hat\sigma_{\text{daily}} \times \sqrt{252}$), suggesting the market prices in discontinuous event risk not captured by recent realized moves.
+2. **10-day absolute return ≥ 15%** (`PRICE_MOVE_THRESHOLD`) — defined as $|S_t / S_{t-10} - 1| \geq 0.15$, indicating a recent jump-like move.
 
 If either criterion is met, the ticker uses Merton. Otherwise, GBM.
 
@@ -115,7 +115,7 @@ $$S_{t+\Delta t} = S_t \exp\!\Big[\left(\mu - \tfrac{1}{2}\sigma^2\right)\Delta 
 
 Parameters:
 
-- $\mu = r \approx 0.043$ (risk-neutral drift)
+- $\mu = r \approx 0.037$ (risk-neutral drift; `RISK_FREE` env-overridable)
 - $\sigma$: the ticker's implied volatility in decimal form (e.g. 1.888 for 188.8% IV)
 - $\Delta t = T / n_{\text{steps}}$, with $n_{\text{steps}} = \lceil T \times 252 \rceil$ (one step per trading day)
 - $n_{\text{paths}} = 10{,}000$
@@ -130,12 +130,12 @@ $$\ln S_{t+\Delta t} = \ln S_t + \left(\mu - \tfrac{1}{2}\sigma_d^2 - \lambda\ba
 
 where:
 
-- $\sigma_d = 0.7\,\sigma$ — the diffusive volatility is set to 70% of total IV. The remaining variance is attributed to the jump component.
-- $\lambda = 2$ — Poisson intensity, implying an expected 2 jumps per year.
+- $\sigma_d = 0.5\,\sigma$ (`sigma_diff_frac`) — the diffusive volatility is set to 50% of total IV. The remaining variance is attributed to the jump component.
+- $\lambda = 2$ (`lam`) — Poisson intensity, implying an expected 2 jumps per year.
 - $N_t \sim \text{Poisson}(\lambda\,\Delta t)$ — the number of jumps in interval $[t, t+\Delta t]$.
 - $J_j \stackrel{\text{iid}}{\sim} \mathcal{N}(\mu_J,\, \sigma_J)$ — individual jump sizes in log-space.
-  - $\mu_J = -0.05$ — negative mean jump, reflecting the empirical asymmetry of crash risk.
-  - $\sigma_J = 0.30\,\sigma$ — jump volatility scales with overall IV.
+  - $\mu_J = -0.10$ (`mu_j`) — negative mean jump, reflecting the empirical asymmetry of crash risk.
+  - $\sigma_J = 0.15$ (`sig_j`) — fixed jump volatility in log-space (does **not** scale with the ticker's IV).
 - When $N_t > 1$, the total jump is the sum $\sum_{j=1}^{N_t} J_j$, which itself is $\mathcal{N}(N_t \mu_J,\, N_t \sigma_J^2)$.
 - $\bar{k} = \exp(\mu_J + \tfrac{1}{2}\sigma_J^2) - 1$ — the drift compensator. This ensures $\mathbb{E}[e^{J}] = 1 + \bar{k}$, and the term $-\lambda\bar{k}$ in the drift removes the average effect of jumps so the process is still risk-neutral.
 
@@ -491,7 +491,7 @@ Alerts have stable keys for dismiss persistence (session) and deduped logging to
 ## Limitations & Assumptions
 
 - **BSM model:** Assumes log-normal returns (geometric Brownian motion), constant volatility, zero dividends, continuous trading, and frictionless markets. Real markets exhibit volatility clustering (GARCH effects), leverage effects, discrete trading, transaction costs, and early exercise optionality (for American options, which are the standard for equity options — BSM prices European options, introducing systematic mispricing for deep ITM options where early exercise is optimal).
-- **Risk-free rate:** Set in `app.py` as `RISK_FREE ≈ 0.043`. Update if the effective rate moves materially.
+- **Risk-free rate:** Defaults to `0.037` in `app.py`; override with the `RISK_FREE` environment variable (e.g. in `.env`). Update if the effective rate moves materially.
 - **Theta projection:** Static-vol, static-spot assumption. In practice, theta is path-dependent: ATM theta follows a $1/\sqrt{T}$ acceleration toward expiry, large price moves shift moneyness (changing the theta regime), and IV changes directly scale the vega-weighted theta contribution. Treat the projection as a premium structure map, not a P&L forecast.
 - **Margin estimation:** Approximates CBOE/Reg-T minimums. Portfolio margin (OCC STANS, a full Monte Carlo VaR at 99.5% over a 2-day horizon with concentration and liquidity charges) produces substantially different — usually lower — requirements for hedged portfolios.
 - **Yahoo Finance data:** Free tier has rate limits (~2,000 requests/hour), occasional stale data (especially for small-cap option chains), and returns NaN for illiquid contracts. The application handles NaN via `pd.notna()` checks, but data quality depends entirely on yfinance.

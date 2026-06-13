@@ -84,8 +84,8 @@ Setup guide: [GitHub SSH keys](https://docs.github.com/en/authentication/connect
 ## After the first push
 
 - **CI** runs automatically (`.github/workflows/ci.yml`) — pytest, pip-audit, frontend build, typecheck, and Playwright E2E on every push/PR
-- **Releases:** GitHub → **Releases** → **Draft a new release** → tag `v1.1.0`, paste notes from [CHANGELOG.md](CHANGELOG.md)
-- **Clone elsewhere:** `git clone …` then `scripts/setup.ps1` or `./start.sh`
+- **Releases:** Git tag **`v1.1.0`** is on the remote. Optional: GitHub → **Releases** → **Draft a new release** → select existing tag `v1.1.0`, paste notes from [CHANGELOG.md](CHANGELOG.md)
+- **Clone elsewhere:** `git clone …` then `scripts/setup.ps1` or `./start.sh` — see [DOCKET.md](DOCKET.md) § Relocating the project for `portfolio.db`, `.env`, and localStorage
 
 ---
 
@@ -107,7 +107,7 @@ docker compose up --build
 | `remote origin already exists` | `git remote set-url origin https://github.com/YOUR_USERNAME/options-dashboard.git` |
 | `Authentication failed` | Use a PAT, not your GitHub password |
 | `gh not recognized` | Install GitHub CLI (Option B) or use Option A |
-| Large accidental commit | Ensure `portfolio.db` and `.env` are not tracked: `git status` |
+| Large accidental commit | Ensure `portfolio.db`, `.env`, and `schwab_token.json` are not tracked: `git status` |
 
 ---
 

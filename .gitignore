@@ -11,6 +11,7 @@ dist/
 build/
 portfolio.db
 .env
+schwab_token.json
 .options-dashboard.lock
 test-results/
 .DS_Store
