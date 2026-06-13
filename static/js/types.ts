@@ -233,7 +233,7 @@ declare global {
   function layoutHorizontalLineLabels(
     lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
     yMin: number, yMax: number
-  ): Array<{ y: number; position?: string; yAdjust?: number; [k: string]: any }>;
+  ): Array<{ y: number; content: string; position?: string; yAdjust?: number; [k: string]: any }>;
   function buildHorizontalLineAnnotations(
     lines: Array<{ y: number; key?: string; content: string; [k: string]: any }>,
     yMin: number, yMax: number,

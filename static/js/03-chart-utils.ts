@@ -1,7 +1,6 @@
 /// <reference path="./types.ts" />
 // Shared Chart.js interaction helpers — crosshair + label layout.
-
-declare const Chart: any; // Chart.js loaded as a global from static/vendor/
+// Chart global is declared in types.ts declare global { const Chart: any }
 
 (function initOdChartUtils() {
   if (typeof Chart === "undefined") return;

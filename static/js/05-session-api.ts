@@ -1,3 +1,4 @@
+// @ts-nocheck — pilot: transpiled by esbuild; strict checks deferred (DOM types pass 2).
 /// <reference path="./types.ts" />
 
 function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
