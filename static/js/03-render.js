@@ -21,6 +21,42 @@ function compressStrategy(strategy) {
 
 const rollPosMap = {};
 
+// ─── Position sort helpers ────────────────────────────────────────────────
+
+function _tickerMinDTE(tickerMap, tkr) {
+  let minDte = Infinity;
+  for (const sec of tickerMap[tkr].sections) {
+    if (!sec.expiry) continue;
+    const exp = sec.expiry instanceof Date ? sec.expiry : new Date(sec.expiry);
+    const dte = Math.ceil((exp - new Date()) / 86400000);
+    if (dte > 0 && dte < minDte) minDte = dte;
+  }
+  return minDte === Infinity ? 9999 : minDte;
+}
+
+function sortTickerKeys(keys, tickerMap) {
+  const by = state.posSortBy || "alpha";
+  const sorted = [...keys];
+  if (by === "alpha") {
+    sorted.sort();
+  } else if (by === "dte") {
+    sorted.sort((a, b) => _tickerMinDTE(tickerMap, a) - _tickerMinDTE(tickerMap, b));
+  } else if (by === "delta") {
+    sorted.sort((a, b) => {
+      const da = Math.abs(state.greeks?.byTicker?.[a]?.delta || 0);
+      const db = Math.abs(state.greeks?.byTicker?.[b]?.delta || 0);
+      return db - da; // descending
+    });
+  } else if (by === "iv") {
+    sorted.sort((a, b) => {
+      const ia = state.marketData?.[a]?.iv || 0;
+      const ib = state.marketData?.[b]?.iv || 0;
+      return ib - ia; // descending
+    });
+  }
+  return sorted;
+}
+
 function renderPortfolio(portfolio, hasMarket) {
   const viewMode = state.viewMode || "ticker";
   document.getElementById("notice-bar").hidden = hasMarket;
@@ -69,7 +105,8 @@ function renderPortfolio(portfolio, hasMarket) {
         tickerMap[tg.ticker].sections.push({ expLabel: eg.label, expiry: eg.expiry, strikes: tg.strikes, posType: tg.posType, strategy: tg.strategy });
       }
     }
-    for (const tkr of Object.keys(tickerMap).sort()) {
+    const sortedTickers = sortTickerKeys(Object.keys(tickerMap), tickerMap);
+    for (const tkr of sortedTickers) {
       const tm = tickerMap[tkr];
       const tg = tm.info;
       bodyHtml += renderTickerHeader(tg);
@@ -94,6 +131,19 @@ function renderPortfolio(portfolio, hasMarket) {
 
   document.getElementById("portfolio-body").innerHTML = bodyHtml;
   document.getElementById("footer").textContent = `Generated ${new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}${hasMarket?" · live data":""} · ${portfolio.totalPositions} positions`;
+
+  // Show filter bar and re-apply active filter/sort state
+  const filterBar = document.getElementById("pos-filter-bar");
+  if (filterBar) {
+    filterBar.hidden = false;
+    // Re-apply sort button active state
+    filterBar.querySelectorAll(".pos-sort-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.sort === (state.posSortBy || "alpha"));
+    });
+    // Re-apply ticker filter text
+    const filterInput = document.getElementById("pos-ticker-filter");
+    if (filterInput && filterInput.value.trim()) applyTickerFilter(filterInput.value);
+  }
 
   renderPositionsRail();
   if (hasMarket) {

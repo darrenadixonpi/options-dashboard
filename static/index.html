@@ -180,6 +180,16 @@
       </button>
       <div class="fetch-log" id="sim-log-inline"></div>
     </div>
+    <div class="pos-filter-bar" id="pos-filter-bar" hidden>
+      <input type="search" id="pos-ticker-filter" class="pos-filter-input" placeholder="Filter ticker…" autocomplete="off" spellcheck="false">
+      <div class="pos-sort-group">
+        <span class="pos-sort-label">Sort:</span>
+        <button class="pos-sort-btn active" data-sort="alpha" type="button">A–Z</button>
+        <button class="pos-sort-btn" data-sort="dte" type="button">DTE</button>
+        <button class="pos-sort-btn" data-sort="delta" type="button">|Δ|</button>
+        <button class="pos-sort-btn" data-sort="iv" type="button">IV</button>
+      </div>
+    </div>
     <div class="positions-layout" id="positions-layout">
       <div id="positions-book-col">
         <div class="outer" id="portfolio-body"></div>

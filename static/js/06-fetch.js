@@ -19,7 +19,8 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
   if (!state.rawPosTexts?.length || btn.classList.contains("fetch-busy")) return;
   const prevSnapForAttr = state.prevSnapshot;
   setFetchButtonLoading(true);
-  btn.innerHTML = "<span>⏳</span> <span>Processing...</span>";
+  document.getElementById("tab-dashboard")?.classList.add("od-fetching");
+  btn.innerHTML = "<span class='od-spinner'></span> <span>Processing...</span>";
   const log = document.getElementById("fetch-log");
 
   try {
@@ -49,12 +50,12 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
       log.textContent = `No positions found (detected: ${format}). ${hint}`;
       document.getElementById("error-box").hidden = false;
       document.getElementById("error-box").textContent = hint;
-      btn.innerHTML = "<span>✗</span> <span>Retry</span>"; setFetchButtonLoading(false); return;
+      btn.innerHTML = "<span>✗</span> <span>Retry</span>"; document.getElementById("tab-dashboard")?.classList.remove("od-fetching"); setFetchButtonLoading(false); return;
     }
 
     const tickers = [...new Set(positions.map(p => p.ticker))].sort();
     log.textContent = `Fetching live data for ${tickers.length} tickers...`;
-    btn.innerHTML = "<span>⏳</span> <span>Fetching prices + IV...</span>";
+    btn.innerHTML = "<span class='od-spinner'></span> <span>Fetching prices + IV...</span>";
 
     const res = await fetch("/api/market-data", {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -161,11 +162,13 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
 
     log.textContent = `Done — ${found}/${tickers.length} tickers with prices · ${state.fills.length} fills matched${state.histText ? "" : " · history skipped"}`;
     btn.innerHTML = "<span>✓</span> <span>Refresh (re-fetch + rebuild)</span>";
+    document.getElementById("tab-dashboard")?.classList.remove("od-fetching");
     setFetchButtonLoading(false);
   } catch(e) {
     log.textContent = `Error: ${e.message}`;
     document.getElementById("error-box").hidden = false;
     document.getElementById("error-box").textContent = e.message;
+    document.getElementById("tab-dashboard")?.classList.remove("od-fetching");
     btn.innerHTML = "<span>✗</span> <span>Retry</span>"; setFetchButtonLoading(false);
   }
 });

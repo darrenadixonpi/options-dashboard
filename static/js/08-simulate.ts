@@ -20,7 +20,7 @@ function enableSimButton() {
 async function runSimulation(btn, logEl) {
   if (!state.positions.length) return;
   btn.disabled = true;
-  btn.innerHTML = "<span>⏳</span> <span>Simulating...</span>";
+  btn.innerHTML = "<span class='od-spinner'></span> <span>Simulating...</span>";
   logEl.textContent = "Running Monte Carlo simulation on server...";
   const allBtns = [document.getElementById("btn-simulate"), document.getElementById("btn-simulate-inline")].filter(Boolean);
   allBtns.forEach(b => b.disabled = true);
