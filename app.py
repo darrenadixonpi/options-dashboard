@@ -35,7 +35,8 @@ PRICE_MOVE_THRESHOLD = 0.15
 CATALYST_LOOKAHEAD_DAYS = 90
 CATALYST_LOOKBACK_DAYS = 30
 MERTON_DEFAULTS = {"sigma_diff_frac": 0.5, "lam": 2.0, "mu_j": -0.10, "sig_j": 0.15}
-RISK_FREE = 0.043
+# Annualized risk-free rate (≈ 3-month T-bill). Override via env: RISK_FREE=0.040
+RISK_FREE = float(os.environ.get("RISK_FREE", "0.037"))
 
 # ─── SQLite Persistence (#18) ─────────────────────────────────────────────
 
@@ -128,21 +129,68 @@ def init_db():
             position_count INTEGER
         );
     """)
+    # Retention: high-churn tables grow on every fetch/auto-refresh; prune
+    # rows older than SNAPSHOT_RETENTION_DAYS (default 180) on startup.
+    try:
+        retention_days = int(os.environ.get("SNAPSHOT_RETENTION_DAYS", "180"))
+        if retention_days > 0:
+            cutoff = (datetime.now() - pd.Timedelta(days=retention_days)).isoformat()
+            conn.execute("DELETE FROM snapshots WHERE timestamp < ?", (cutoff,))
+            conn.execute("DELETE FROM alert_events WHERE triggered_at < ?", (cutoff,))
+            conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 def _parse_occ_symbol(sym):
-    """Parse OCC option symbol into ticker, expiry, type, strike."""
-    m = re.match(r"-?([a-z]+)(\d{6})([cp])(\d+)", sym.lower().replace(" ", ""))
+    """Parse OCC option symbol into ticker, expiry, type, strike.
+
+    Supports both standard OCC padded strikes (00002500 → 2.5) and
+    broker CSV decimal strikes (2.5 → 2.5).
+    """
+    m = re.match(r"-?([a-z]+)(\d{6})([cp])(\d+(?:\.\d+)?)", sym.lower().replace(" ", ""))
     if not m:
         return None
     ds = m.group(2)
     expiry = f"20{ds[0:2]}-{ds[2:4]}-{ds[4:6]}"
     opt_type = "Put" if m.group(3) == "p" else "Call"
     strike_raw = m.group(4)
-    strike = float(strike_raw) / 1000.0 if len(strike_raw) > 6 else float(strike_raw)
+    if "." in strike_raw:
+        strike = float(strike_raw)  # literal decimal strike (Fidelity-style)
+    elif len(strike_raw) > 6:
+        strike = float(strike_raw) / 1000.0  # standard OCC 8-digit padded strike
+    else:
+        strike = float(strike_raw)
     return {"ticker": m.group(1).upper(), "expiry": expiry, "optType": opt_type, "strike": strike}
 
 init_db()
+
+
+def _calendar_field(cal, key):
+    """Read a field from yf.Ticker.calendar across yfinance versions.
+
+    Older yfinance returned a DataFrame (keys in .index); current versions
+    return a plain dict. Returns the raw value (or first element of a
+    list/Series) or None.
+    """
+    if cal is None:
+        return None
+    try:
+        if isinstance(cal, dict):
+            val = cal.get(key)
+        elif hasattr(cal, "index") and key in cal.index:
+            val = cal.loc[key]
+        else:
+            return None
+        if hasattr(val, "iloc"):
+            val = val.iloc[0] if len(val) else None
+        elif isinstance(val, (list, tuple)):
+            val = val[0] if val else None
+        if val is None or (hasattr(pd, "isna") and not isinstance(val, (list, tuple)) and pd.isna(val)):
+            return None
+        return val
+    except Exception:
+        return None
 
 
 # ─── Black-Scholes Greeks (#1) ────────────────────────────────────────────
@@ -425,20 +473,14 @@ def fetch_ticker_data(tkr):
                 data[f"em_{label}"] = em
                 data[f"em_{label}_pct"] = em_pct
 
-        # Dividend ex-date (#7)
+        # Dividend ex-date (#7) — yfinance calendar is a dict in current
+        # versions (was a DataFrame); _calendar_field handles both.
         try:
             cal = tk.calendar
-            if cal is not None and not cal.empty:
-                if "Ex-Dividend Date" in cal.index:
-                    ex_date = cal.loc["Ex-Dividend Date"]
-                    if hasattr(ex_date, "iloc"):
-                        ex_date = ex_date.iloc[0]
-                    if pd.notna(ex_date):
-                        data["exDivDate"] = str(ex_date.date()) if hasattr(ex_date, "date") else str(ex_date)
-                if "Dividend Date" in cal.index:
-                    div_date = cal.loc["Dividend Date"]
-                    if hasattr(div_date, "iloc"):
-                        div_date = div_date.iloc[0]
+            ex_date = _calendar_field(cal, "Ex-Dividend Date")
+            if ex_date is not None:
+                data["exDivDate"] = str(ex_date.date()) if hasattr(ex_date, "date") else str(ex_date)
+            if ex_date is not None or _calendar_field(cal, "Dividend Date") is not None:
                 divs = tk.dividends
                 if not divs.empty:
                     data["lastDividend"] = round(float(divs.iloc[-1]), 4)
@@ -451,6 +493,12 @@ def fetch_ticker_data(tkr):
 
 
 # ─── API: Greeks + Beta-Weighted Delta + Risk (#1, #2, #3) ────────────────
+
+# Beta cache: {ticker: (beta, fetched_at)}; "__SPY__" holds ((price, returns), ts)
+_beta_cache = {}
+BETA_TTL_S = 6 * 3600       # per-ticker beta: 6 hours
+BETA_SPY_TTL_S = 15 * 60    # SPY price/returns: 15 minutes
+
 
 @app.route("/api/greeks", methods=["POST"])
 def compute_greeks():
@@ -528,13 +576,19 @@ def compute_greeks():
         for k in portfolio_greeks:
             portfolio_greeks[k] = round(portfolio_greeks[k], 2)
 
-        # Beta-weighted delta (#2)
+        # Beta-weighted delta (#2) — betas cached (TTL) so auto-refresh does
+        # not re-download 6-month histories on every greeks call.
         beta_weighted = None
         try:
-            spy = yf.Ticker("SPY")
-            spy_hist = spy.history(period="6mo")
-            spy_price = float(spy_hist["Close"].iloc[-1])
-            spy_ret = np.log(spy_hist["Close"] / spy_hist["Close"].shift(1)).dropna()
+            now_ts = time.time()
+            spy_price, spy_ret = None, None
+            if _beta_cache.get("__SPY__") and now_ts - _beta_cache["__SPY__"][1] < BETA_SPY_TTL_S:
+                spy_price, spy_ret = _beta_cache["__SPY__"][0]
+            else:
+                spy_hist = yf.Ticker("SPY").history(period="6mo")
+                spy_price = float(spy_hist["Close"].iloc[-1])
+                spy_ret = np.log(spy_hist["Close"] / spy_hist["Close"].shift(1)).dropna()
+                _beta_cache["__SPY__"] = ((spy_price, spy_ret), now_ts)
 
             bw_delta = 0
             for tkr in ticker_greeks:
@@ -542,17 +596,22 @@ def compute_greeks():
                 tkr_price = md.get("price", 0)
                 if not tkr_price:
                     continue
-                try:
-                    tkr_hist = yf.Ticker(tkr).history(period="6mo")
-                    tkr_ret = np.log(tkr_hist["Close"] / tkr_hist["Close"].shift(1)).dropna()
-                    aligned = pd.DataFrame({"spy": spy_ret, "tkr": tkr_ret}).dropna()
-                    if len(aligned) >= 30:
-                        cov = np.cov(aligned["tkr"], aligned["spy"])
-                        beta = float(cov[0, 1] / cov[1, 1])
-                    else:
+                cached = _beta_cache.get(tkr)
+                if cached and now_ts - cached[1] < BETA_TTL_S:
+                    beta = cached[0]
+                else:
+                    try:
+                        tkr_hist = yf.Ticker(tkr).history(period="6mo")
+                        tkr_ret = np.log(tkr_hist["Close"] / tkr_hist["Close"].shift(1)).dropna()
+                        aligned = pd.DataFrame({"spy": spy_ret, "tkr": tkr_ret}).dropna()
+                        if len(aligned) >= 30:
+                            cov = np.cov(aligned["tkr"], aligned["spy"])
+                            beta = float(cov[0, 1] / cov[1, 1])
+                        else:
+                            beta = 1.0
+                    except Exception:
                         beta = 1.0
-                except Exception:
-                    beta = 1.0
+                    _beta_cache[tkr] = (beta, now_ts)
 
                 pos_delta = ticker_greeks[tkr]["delta"]
                 bw_delta += pos_delta * tkr_price * beta / spy_price
@@ -618,18 +677,26 @@ def get_events():
                 pass
             try:
                 cal = tk.calendar
-                if cal is not None and not cal.empty:
-                    if "Earnings Date" in cal.index:
-                        ed_val = cal.loc["Earnings Date"]
-                        if hasattr(ed_val, "iloc"):
-                            for i in range(len(ed_val)):
-                                d = ed_val.iloc[i]
-                                if pd.notna(d):
-                                    tkr_events.append({
-                                        "date": str(d.date()) if hasattr(d, "date") else str(d),
-                                        "type": "earnings",
-                                        "label": "Earnings (calendar)",
-                                    })
+                ed_raw = None
+                if isinstance(cal, dict):
+                    ed_raw = cal.get("Earnings Date")
+                elif cal is not None and hasattr(cal, "index") and "Earnings Date" in cal.index:
+                    ed_raw = cal.loc["Earnings Date"]
+                if ed_raw is not None:
+                    if hasattr(ed_raw, "iloc"):
+                        ed_list = [ed_raw.iloc[i] for i in range(len(ed_raw))]
+                    elif isinstance(ed_raw, (list, tuple)):
+                        ed_list = list(ed_raw)
+                    else:
+                        ed_list = [ed_raw]
+                    for d in ed_list:
+                        if d is None or (not isinstance(d, (list, tuple)) and pd.isna(d)):
+                            continue
+                        tkr_events.append({
+                            "date": str(d.date()) if hasattr(d, "date") else str(d),
+                            "type": "earnings",
+                            "label": "Earnings (calendar)",
+                        })
             except Exception:
                 pass
         except Exception as e:
@@ -4091,7 +4158,7 @@ def static_files(path):
     return send_from_directory("static", path)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "1").lower() in ("1", "true", "yes")
