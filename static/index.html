@@ -16,9 +16,10 @@
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="risk">Risk</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="simulate">Simulation</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="journal">Journal</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-tab="orders">Orders</button>
   </div>
   <div class="top-bar-actions">
-    <span class="kbd-hint" id="kbd-hint" title="Keyboard shortcuts (when not typing in a field)">Shortcuts: <kbd>1</kbd>–<kbd>4</kbd> tabs · <kbd>/</kbd> jump · <kbd>r</kbd> marks</span>
+    <span class="kbd-hint" id="kbd-hint" title="Keyboard shortcuts (when not typing in a field)">Shortcuts: <kbd>1</kbd>–<kbd>5</kbd> tabs · <kbd>/</kbd> jump · <kbd>r</kbd> marks</span>
     <button class="btn btn-sm btn-ghost" id="btn-wide-layout" type="button" title="Toggle wide layout (1380px vs 1100px)">Wide</button>
     <button class="btn btn-sm btn-ghost" id="btn-open-import" type="button">Import</button>
   </div>
@@ -60,13 +61,49 @@
         </ol>
       </div>
       <div id="instr-schwab" hidden>
-        <strong>Schwab export instructions:</strong>
-        <ol>
-          <li>Log into <a href="https://www.schwab.com" target="_blank" style="color:var(--accent)">schwab.com</a> → <strong>Accounts</strong> tab → <strong>Positions</strong></li>
-          <li>Click <strong>Export</strong> (top right) → save CSV as your <strong>Portfolio</strong> file</li>
-          <li>Go to <strong>Accounts</strong> → <strong>History</strong> → select <strong>All Transactions</strong> and date range</li>
-          <li>Click <strong>Export</strong> → select <strong>CSV</strong> → save as your <strong>History</strong> file</li>
-        </ol>
+        <!-- Schwab API panel (shown when API is configured) -->
+        <div id="schwab-api-panel" hidden style="margin-bottom:12px;padding:14px 16px;background:var(--bg2);border-radius:var(--radius);border:1px solid var(--bd)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:500;color:var(--tx2)">Schwab API</span>
+            <span id="schwab-status-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--tx3)">checking…</span>
+          </div>
+          <!-- Not authenticated state -->
+          <div id="schwab-connect-section">
+            <div style="font-size:12px;color:var(--tx3);margin-bottom:8px">Connect your Schwab account to sync positions directly — no CSV export needed.</div>
+            <button class="btn btn-sm" id="btn-schwab-connect" type="button">Connect Schwab Account</button>
+          </div>
+          <!-- Callback URL paste section (shown after clicking Connect) -->
+          <div id="schwab-callback-section" hidden style="margin-top:10px">
+            <div style="font-size:12px;color:var(--tx2);margin-bottom:6px">
+              1. <a id="schwab-auth-link" href="#" target="_blank" style="color:var(--accent)">Click here to log in at Schwab</a><br>
+              2. After login, Schwab redirects to a page that may show an error — that's fine.<br>
+              3. Copy the full URL from your browser's address bar and paste it below:
+            </div>
+            <div style="display:flex;gap:6px">
+              <input id="schwab-callback-url" type="text" placeholder="https://127.0.0.1:8182?code=…" style="flex:1;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg);color:var(--tx);font-family:var(--mono);font-size:11px">
+              <button class="btn btn-sm" id="btn-schwab-submit-callback" type="button">Submit</button>
+            </div>
+            <div id="schwab-callback-error" style="font-size:11px;color:var(--err-tx);margin-top:4px;display:none"></div>
+          </div>
+          <!-- Authenticated state -->
+          <div id="schwab-sync-section" hidden>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" id="btn-schwab-sync" type="button">↻ Sync positions from Schwab</button>
+              <button class="btn btn-sm btn-ghost" id="btn-schwab-disconnect" type="button">Disconnect</button>
+            </div>
+            <div id="schwab-sync-status" style="font-size:11px;color:var(--tx3);margin-top:6px"></div>
+          </div>
+        </div>
+        <!-- CSV fallback instructions -->
+        <details style="margin-bottom:6px">
+          <summary style="font-size:12px;color:var(--tx3);cursor:pointer">Use CSV export instead</summary>
+          <ol style="margin-top:6px">
+            <li>Log into <a href="https://www.schwab.com" target="_blank" style="color:var(--accent)">schwab.com</a> → <strong>Accounts</strong> tab → <strong>Positions</strong></li>
+            <li>Click <strong>Export</strong> (top right) → save CSV as your <strong>Portfolio</strong> file</li>
+            <li>Go to <strong>Accounts</strong> → <strong>History</strong> → select <strong>All Transactions</strong> and date range</li>
+            <li>Click <strong>Export</strong> → select <strong>CSV</strong> → save as your <strong>History</strong> file</li>
+          </ol>
+        </details>
       </div>
       <div id="instr-ibkr" hidden>
         <strong>IBKR export instructions:</strong>
@@ -205,6 +242,38 @@
           <div class="rail-alerts-history-wrap">
             <div class="rail-card-hdr" style="margin-top:10px;font-size:10px;color:var(--tx3)">Recent log</div>
             <div id="rail-alerts-history" class="rail-list"></div>
+          </div>
+          <!-- Phase 7.3: Alert rules -->
+          <div style="margin-top:14px;border-top:1px solid var(--bd);padding-top:10px">
+            <div style="font-size:11px;font-weight:500;color:var(--tx2);margin-bottom:6px">Alert rules</div>
+            <div id="alert-rules-list" style="margin-bottom:8px"></div>
+            <!-- Add rule form -->
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <input id="rule-name" placeholder="Rule name" style="padding:5px 7px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:11px">
+              <div style="display:flex;gap:5px">
+                <select id="rule-condition-type" style="flex:1;padding:5px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:11px">
+                  <option value="">Condition…</option>
+                  <option value="delta_gt">|Δ| &gt;</option>
+                  <option value="delta_lt">|Δ| &lt;</option>
+                  <option value="theta_gt">Θ &gt;</option>
+                  <option value="iv_gt">IV &gt;</option>
+                  <option value="iv_lt">IV &lt;</option>
+                  <option value="pprofit_lt">P(profit) &lt;</option>
+                  <option value="dte_lt">DTE &lt;</option>
+                  <option value="var_gt">VaR &gt;</option>
+                </select>
+                <input id="rule-threshold" type="number" step="any" placeholder="Value" style="width:60px;padding:5px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+              </div>
+              <div style="display:flex;gap:5px">
+                <input id="rule-ticker" placeholder="Ticker (opt)" style="flex:1;padding:5px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+                <button class="btn btn-sm" onclick="addAlertRule()" type="button">Add</button>
+              </div>
+            </div>
+            <!-- Notification settings -->
+            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <button class="btn btn-sm btn-ghost" onclick="requestNotificationPermission()" type="button" style="font-size:10px">Enable browser alerts</button>
+              <button class="btn btn-sm btn-ghost" id="btn-test-email" onclick="testEmailNotification()" type="button" style="font-size:10px">Send test email</button>
+            </div>
           </div>
         </div>
         <div class="rail-card" id="rail-mini-risk">
@@ -365,6 +434,16 @@
         </div>
         <div id="whatif-list" style="min-height:24px;margin-bottom:10px"></div>
         <div class="summary" id="whatif-greeks-summary" hidden></div>
+        <!-- Phase 7.4: Strategy Templates -->
+        <div style="margin-top:14px;border-top:1px solid var(--bd);padding-top:12px">
+          <div style="font-size:12px;font-weight:500;color:var(--tx2);margin-bottom:8px">Strategy Templates</div>
+          <div id="strategy-template-list" style="margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <input id="template-name" placeholder="Template name" style="flex:1;min-width:120px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:11px">
+            <input id="template-desc" placeholder="Description (opt)" style="flex:1;min-width:120px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:11px">
+            <button class="btn btn-sm" onclick="saveStrategyTemplate()" type="button">Save current legs</button>
+          </div>
+        </div>
       </div>
       <div class="outer" style="padding:20px" id="risk-matrix-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:10px">
@@ -407,6 +486,54 @@
         <div style="font-size:10px;color:var(--tx3);margin-bottom:8px">IV by strike from option chain. Only strikes with open interest or volume are shown.</div>
         <canvas id="chart-vol-surface" height="250"></canvas>
       </div>
+      <!-- Phase 7.6: VaR panel -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="var-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Value at Risk</div>
+          <button class="btn btn-sm btn-ghost" onclick="loadVaR()" type="button">Compute VaR</button>
+        </div>
+        <div id="var-panel"><span style="font-size:12px;color:var(--tx3)">Run simulation first, then click Compute VaR.</span></div>
+      </div>
+      <!-- Phase 7.8: Export buttons for Risk tab -->
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost" onclick="exportGreeksSnapshot()" type="button">⬇ Greeks snapshot CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ORDERS (Phase 7.2) -->
+  <div id="tab-orders" hidden>
+    <div id="orders-empty" class="empty-state" hidden>
+      <h2>Orders</h2>
+      <p>Import your portfolio to start building draft orders.</p>
+    </div>
+    <div id="orders-content">
+      <div class="outer" style="padding:20px;margin-bottom:20px">
+        <div style="font-weight:500;font-size:14px;margin-bottom:8px">Draft Orders</div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:12px">Build and stage orders locally. Broker execution requires manual entry at your broker.</div>
+        <div id="orders-panel" style="min-height:40px"></div>
+        <div id="orders-status-msg" hidden style="margin-top:8px;padding:8px 12px;border-radius:var(--radius);background:var(--bg2);border:1px solid var(--warn-bd);font-size:11px;color:var(--warn-tx)"></div>
+      </div>
+
+      <div class="outer" style="padding:20px">
+        <div style="font-weight:500;font-size:14px;margin-bottom:10px">New Draft Order</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Ticker</div>
+            <input id="order-ticker" placeholder="e.g. SPY" style="width:80px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:12px">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Strategy label</div>
+            <input id="order-strategy" placeholder="e.g. Bull Put Spread" style="width:160px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:12px">
+          </div>
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Notes</div>
+            <input id="order-notes" placeholder="Optional trade rationale" style="width:100%;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-size:12px">
+          </div>
+          <button class="btn btn-sm" onclick="createDraftOrder()" type="button">Create draft</button>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-top:8px">Tip: Build your legs in the <strong>Risk → What-if</strong> tab first, then create a draft order — the legs will be copied automatically.</div>
+      </div>
     </div>
   </div>
 
@@ -429,6 +556,8 @@
           <button type="button" id="btn-clear-journal-date" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px;line-height:1" title="Clear date filter">×</button>
         </span>
         <button class="btn btn-sm btn-ghost" id="btn-export-journal-csv" type="button">Export CSV</button>
+        <button class="btn btn-sm btn-ghost" onclick="exportPortfolioHistory()" type="button">⬇ Portfolio history</button>
+        <button class="btn btn-sm btn-ghost" onclick="exportJournal()" type="button">⬇ Full journal</button>
         <label style="font-size:10px;color:var(--tx2);display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-family:var(--mono)">
           <input type="checkbox" id="hist-show-assignment-legs"> Show assignment stock legs
         </label>
@@ -492,6 +621,23 @@
         </div>
         <canvas id="chart-cumulative-pnl" height="200"></canvas>
       </div>
+
+      <!-- Phase 7.5: Tax Lots -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="tax-lots-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Tax Lot Analysis</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="tax-method" style="padding:5px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+              <option value="fifo">FIFO</option>
+              <option value="lifo">LIFO</option>
+            </select>
+            <input id="tax-year" type="number" placeholder="Year (all)" min="2000" max="2099" style="width:90px;padding:5px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
+            <button class="btn btn-sm" onclick="loadTaxLots(document.getElementById('tax-method').value, document.getElementById('tax-year').value || null)" type="button">Compute</button>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:10px">FIFO/LIFO lot matching · wash-sale detection (30-day window) · Form 8949 export. Requires History CSV.</div>
+        <div id="tax-lots-panel"><span style="font-size:12px;color:var(--tx3)">Select method and click Compute.</span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -521,6 +667,7 @@
 <script src="/static/js/10-journal.js"></script>
 <script src="/static/js/11-roll-catalysts-init.js"></script>
 <script src="/static/js/12-snapshots.js"></script>
+<script src="/static/js/10-phase7.js"></script>
 <!-- od:scripts-end -->
 </body>
 </html>

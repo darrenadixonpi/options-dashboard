@@ -27,6 +27,16 @@ function switchToTab(tabKey, opts = {}) {
       loadSnapshotHistoryUI();
     });
   }
+  if (tabKey === "orders") {
+    requestAnimationFrame(() => {
+      if (typeof loadOrders === "function") loadOrders();
+    });
+  }
+  if (tabKey === "risk") {
+    requestAnimationFrame(() => {
+      if (typeof loadStrategyTemplates === "function") loadStrategyTemplates();
+    });
+  }
   if (tabKey === "simulate") {
     requestAnimationFrame(() => {
       setupSimNavScrollSpy();

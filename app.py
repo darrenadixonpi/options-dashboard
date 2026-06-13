@@ -5,14 +5,15 @@ Run: python app.py
 Then open http://localhost:5000
 """
 
-import json
-import sys
-import re
-import os
 import csv
+import io
+import json
+import os
+import re
+import sqlite3
+import sys
 import time
 import traceback
-import sqlite3
 from datetime import datetime, date
 from collections import Counter, OrderedDict, defaultdict
 from flask import Flask, request, jsonify, send_from_directory
@@ -208,6 +209,33 @@ def init_db():
             unrealized_pnl REAL,
             book_value REAL,
             position_count INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS strategy_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            legs_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS alert_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            ticker TEXT,
+            condition_type TEXT NOT NULL,
+            threshold REAL,
+            action TEXT NOT NULL DEFAULT 'notify',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS draft_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            strategy TEXT,
+            legs_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
     """)
     # Retention: high-churn tables grow on every fetch/auto-refresh; prune
@@ -4276,6 +4304,683 @@ def _read_version():
 @app.route("/api/version")
 def api_version():
     return jsonify({"version": _read_version(), "name": "options-dashboard"})
+
+
+# ─── Schwab API routes (Phase 6) ─────────────────────────────────────────────
+
+from schwab_client import SchwabAuthError, SchwabApiError, get_schwab_client
+from tax_lots import compute_tax_lots, export_8949_csv
+
+
+@app.route("/api/schwab/status")
+def schwab_status():
+    """Return Schwab connection status (configured, authenticated, token age)."""
+    try:
+        return jsonify(get_schwab_client().status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/schwab/auth/url")
+def schwab_auth_url():
+    """Return the OAuth authorization URL for the user to open in a browser."""
+    try:
+        url = get_schwab_client().get_auth_url()
+        return jsonify({"auth_url": url})
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/schwab/auth/callback", methods=["POST"])
+def schwab_auth_callback():
+    """Exchange authorization code from pasted redirect URL for tokens.
+
+    Body: { "url": "<full redirect URL copied from browser address bar>" }
+    """
+    try:
+        pasted_url = (request.json or {}).get("url", "")
+        if not pasted_url:
+            return jsonify({"error": "Body must contain 'url' field with the full redirect URL"}), 400
+        get_schwab_client().handle_callback(pasted_url)
+        return jsonify({"ok": True, "status": get_schwab_client().status()})
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/schwab/sync", methods=["POST"])
+def schwab_sync():
+    """Fetch live positions from Schwab and return them in internal leg format.
+
+    Response: { "positions": [...], "account_count": int, "position_count": int }
+    The frontend can pass this directly to buildPortfolio() just like a parsed CSV.
+    """
+    try:
+        positions = get_schwab_client().get_positions()
+        return jsonify({
+            "positions": positions,
+            "position_count": len(positions),
+            "synced_at": datetime.now().isoformat(),
+        })
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e), "needs_reauth": True}), 401
+    except SchwabApiError as e:
+        return jsonify({"error": str(e)}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/schwab/disconnect", methods=["POST"])
+def schwab_disconnect():
+    """Delete the local token file and clear the in-memory client state."""
+    try:
+        get_schwab_client().disconnect()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Tax lot routes (Phase 7.5) ───────────────────────────────────────────────
+
+@app.route("/api/tax-lots/compute", methods=["POST"])
+def tax_lots_compute():
+    """Compute FIFO/LIFO realized gains, wash-sale adjustments, open lots.
+
+    Body: { "method": "fifo"|"lifo", "tax_year": int|null,
+            "trades": [...] | null (null = load from DB closed_trades) }
+    """
+    try:
+        body = request.json or {}
+        method = body.get("method", "fifo")
+        tax_year = body.get("tax_year")
+        trades_in = body.get("trades")
+
+        if trades_in is None:
+            conn = get_db()
+            rows = conn.execute(
+                "SELECT ticker, opt_type, strike, open_date, close_date, "
+                "open_price, close_price, quantity, pnl, strategy FROM closed_trades "
+                "ORDER BY open_date ASC"
+            ).fetchall()
+            conn.close()
+            trades_in = [dict(r) for r in rows]
+
+        result = compute_tax_lots(trades_in, method=method, tax_year=tax_year)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tax-lots/export")
+def tax_lots_export():
+    """Export realized gains as a Form 8949-compatible CSV.
+
+    Query params: method (fifo|lifo), tax_year (int)
+    """
+    try:
+        method = request.args.get("method", "fifo")
+        tax_year_raw = request.args.get("tax_year")
+        tax_year = int(tax_year_raw) if tax_year_raw else None
+
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT ticker, opt_type, strike, open_date, close_date, "
+            "open_price, close_price, quantity, pnl FROM closed_trades "
+            "ORDER BY open_date ASC"
+        ).fetchall()
+        conn.close()
+        trades = [dict(r) for r in rows]
+
+        result = compute_tax_lots(trades, method=method, tax_year=tax_year)
+        csv_text = export_8949_csv(result["realized"])
+        fname = f"form8949_{tax_year or 'all'}_{method}.csv"
+        return csv_text, 200, {
+            "Content-Type": "text/csv",
+            "Content-Disposition": f'attachment; filename="{fname}"',
+        }
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Strategy template routes (Phase 7.4) ────────────────────────────────────
+
+@app.route("/api/strategy-templates", methods=["GET"])
+def list_strategy_templates():
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, name, description, legs_json, created_at FROM strategy_templates ORDER BY name"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-templates", methods=["POST"])
+def save_strategy_template():
+    """Save a new strategy template.
+
+    Body: { "name": str, "description": str, "legs": [...] }
+    """
+    try:
+        body = request.json or {}
+        name = (body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "name is required"}), 400
+        legs = body.get("legs", [])
+        desc = body.get("description", "")
+        now = datetime.now().isoformat()
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO strategy_templates (name, description, legs_json, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (name, desc, json.dumps(legs), now),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, name, description, legs_json, created_at FROM strategy_templates WHERE name=?",
+            (name,)
+        ).fetchone()
+        conn.close()
+        return jsonify(dict(row))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-templates/<int:template_id>", methods=["DELETE"])
+def delete_strategy_template(template_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM strategy_templates WHERE id=?", (template_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Alert rules routes (Phase 7.3) ──────────────────────────────────────────
+
+@app.route("/api/alert-rules", methods=["GET"])
+def list_alert_rules():
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, name, ticker, condition_type, threshold, action, enabled, created_at "
+            "FROM alert_rules ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alert-rules", methods=["POST"])
+def create_alert_rule():
+    """Create a new alert rule.
+
+    Body: { "name": str, "ticker": str|null, "condition_type": str,
+            "threshold": float|null, "action": "notify" }
+
+    condition_type values: price_above, price_below, iv_rank_above,
+    delta_above, delta_below, dte_below, p_profit_below
+    """
+    try:
+        body = request.json or {}
+        condition_type = body.get("condition_type", "")
+        if not condition_type:
+            return jsonify({"error": "condition_type is required"}), 400
+        now = datetime.now().isoformat()
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO alert_rules (name, ticker, condition_type, threshold, action, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (
+                body.get("name") or condition_type,
+                (body.get("ticker") or "").upper() or None,
+                condition_type,
+                body.get("threshold"),
+                body.get("action", "notify"),
+                now,
+            ),
+        )
+        row_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM alert_rules WHERE id=?", (row_id,)).fetchone()
+        conn.close()
+        return jsonify(dict(row))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alert-rules/<int:rule_id>", methods=["PUT"])
+def update_alert_rule(rule_id):
+    try:
+        body = request.json or {}
+        conn = get_db()
+        if "enabled" in body:
+            conn.execute("UPDATE alert_rules SET enabled=? WHERE id=?", (int(body["enabled"]), rule_id))
+        if "threshold" in body:
+            conn.execute("UPDATE alert_rules SET threshold=? WHERE id=?", (body["threshold"], rule_id))
+        if "name" in body:
+            conn.execute("UPDATE alert_rules SET name=? WHERE id=?", (body["name"], rule_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM alert_rules WHERE id=?", (rule_id,)).fetchone()
+        conn.close()
+        return jsonify(dict(row) if row else {"error": "not found"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alert-rules/<int:rule_id>", methods=["DELETE"])
+def delete_alert_rule(rule_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM alert_rules WHERE id=?", (rule_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alert-rules/evaluate", methods=["POST"])
+def evaluate_alert_rules():
+    """Evaluate all enabled rules against current market + greeks data.
+
+    Body: { "marketData": {...}, "greeks": {...}, "simResult": {...} }
+    Returns: { "triggered": [{ rule_id, rule_name, message, ticker }, ...] }
+    """
+    try:
+        body = request.json or {}
+        market = body.get("marketData", {})
+        greeks_data = body.get("greeks", {})
+        sim = body.get("simResult", {})
+
+        conn = get_db()
+        rules = conn.execute(
+            "SELECT id, name, ticker, condition_type, threshold FROM alert_rules WHERE enabled=1"
+        ).fetchall()
+        triggered = []
+        now_iso = datetime.now().isoformat()
+
+        for rule in rules:
+            r = dict(rule)
+            tkr = r["ticker"]
+            ct = r["condition_type"]
+            thresh = r["threshold"]
+            md = market.get(tkr, {}) if tkr else {}
+            tg = (greeks_data.get("byTicker") or {}).get(tkr, {}) if tkr else {}
+
+            fired = False
+            msg = ""
+
+            if ct == "price_above" and tkr and md.get("price") and thresh is not None:
+                if md["price"] > thresh:
+                    fired = True; msg = f"{tkr} price ${md['price']:.2f} > ${thresh}"
+            elif ct == "price_below" and tkr and md.get("price") and thresh is not None:
+                if md["price"] < thresh:
+                    fired = True; msg = f"{tkr} price ${md['price']:.2f} < ${thresh}"
+            elif ct == "iv_rank_above" and tkr and md.get("iv_rank") is not None and thresh is not None:
+                if md["iv_rank"] > thresh:
+                    fired = True; msg = f"{tkr} IVR {md['iv_rank']:.0f} > {thresh}"
+            elif ct == "delta_above" and tkr and tg.get("delta") is not None and thresh is not None:
+                if abs(tg["delta"]) > thresh:
+                    fired = True; msg = f"{tkr} |Δ| {abs(tg['delta']):.0f} > {thresh}"
+            elif ct == "delta_below" and tkr and tg.get("delta") is not None and thresh is not None:
+                if abs(tg["delta"]) < thresh:
+                    fired = True; msg = f"{tkr} |Δ| {abs(tg['delta']):.0f} < {thresh}"
+            elif ct == "dte_below" and thresh is not None:
+                # Evaluate across all tickers in greeks
+                by_ticker = greeks_data.get("byTicker") or {}
+                for t2, g2 in by_ticker.items():
+                    if tkr and t2 != tkr:
+                        continue
+                    dte = g2.get("minDte")
+                    if dte is not None and dte < thresh:
+                        fired = True; msg = f"{t2} DTE {dte} < {thresh}"; break
+            elif ct == "p_profit_below" and thresh is not None:
+                port_sim = (sim.get("portfolio") or {})
+                pp = port_sim.get("prob_profit")
+                if pp is not None and pp * 100 < thresh:
+                    fired = True; msg = f"Portfolio P(profit) {pp*100:.0f}% < {thresh}%"
+
+            if fired:
+                alert_key = f"rule_{r['id']}_{now_iso[:10]}"
+                try:
+                    conn.execute(
+                        "INSERT INTO alert_events (alert_key, ticker, category, severity, message, triggered_at) "
+                        "VALUES (?, ?, 'rule', 'medium', ?, ?)",
+                        (alert_key, tkr or "", msg, now_iso),
+                    )
+                except Exception:
+                    pass
+                triggered.append({"rule_id": r["id"], "rule_name": r["name"], "message": msg, "ticker": tkr})
+
+        conn.commit()
+        conn.close()
+        return jsonify({"triggered": triggered, "evaluated_at": now_iso})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Notification routes (Phase 7.7) ─────────────────────────────────────────
+
+@app.route("/api/notify/test", methods=["POST"])
+def notify_test():
+    """Send a test email to verify SMTP configuration.
+
+    Reads: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, ALERT_EMAIL_TO from env.
+    """
+    try:
+        import smtplib
+        from email.message import EmailMessage
+
+        host = os.environ.get("SMTP_HOST", "")
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        user = os.environ.get("SMTP_USER", "")
+        pwd = os.environ.get("SMTP_PASS", "")
+        to_addr = os.environ.get("ALERT_EMAIL_TO", "")
+
+        if not all([host, user, to_addr]):
+            return jsonify({"error": "SMTP_HOST, SMTP_USER, and ALERT_EMAIL_TO must be set in .env"}), 400
+
+        msg = EmailMessage()
+        msg["Subject"] = "Options Dashboard — test alert"
+        msg["From"] = user
+        msg["To"] = to_addr
+        msg.set_content("This is a test notification from Options Dashboard. SMTP is configured correctly.")
+
+        with smtplib.SMTP(host, port) as server:
+            server.starttls()
+            if pwd:
+                server.login(user, pwd)
+            server.send_message(msg)
+
+        return jsonify({"ok": True, "to": to_addr})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _send_alert_email(subject: str, body: str) -> None:
+    """Send an alert email if SMTP is configured. Silent no-op if not."""
+    try:
+        import smtplib
+        from email.message import EmailMessage
+        host = os.environ.get("SMTP_HOST", "")
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        user = os.environ.get("SMTP_USER", "")
+        pwd = os.environ.get("SMTP_PASS", "")
+        to_addr = os.environ.get("ALERT_EMAIL_TO", "")
+        if not all([host, user, to_addr]):
+            return
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = user
+        msg["To"] = to_addr
+        msg.set_content(body)
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            server.starttls()
+            if pwd:
+                server.login(user, pwd)
+            server.send_message(msg)
+    except Exception as exc:
+        print(f"[notify] Email send failed: {exc}", file=sys.stderr)
+
+
+# ─── Data export routes (Phase 7.8) ──────────────────────────────────────────
+
+@app.route("/api/export/portfolio-history")
+def export_portfolio_history():
+    """Export all snapshots as CSV: timestamp, ticker, price, iv, delta, gamma, theta, vega."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT timestamp, ticker, price, iv, delta, gamma, theta, vega, position_value "
+            "FROM snapshots ORDER BY timestamp ASC"
+        ).fetchall()
+        conn.close()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["timestamp", "ticker", "price", "iv", "delta", "gamma", "theta", "vega", "position_value"])
+        for r in rows:
+            writer.writerow(list(r))
+        return buf.getvalue(), 200, {
+            "Content-Type": "text/csv",
+            "Content-Disposition": 'attachment; filename="portfolio_history.csv"',
+        }
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/export/journal")
+def export_journal():
+    """Export closed trades as CSV."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT ticker, occ_symbol, opt_type, strike, open_date, close_date, "
+            "open_price, close_price, quantity, pnl, strategy, close_type "
+            "FROM closed_trades ORDER BY close_date DESC"
+        ).fetchall()
+        conn.close()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["ticker", "occ_symbol", "opt_type", "strike", "open_date",
+                         "close_date", "open_price", "close_price", "quantity",
+                         "pnl", "strategy", "close_type"])
+        for r in rows:
+            writer.writerow(list(r))
+        return buf.getvalue(), 200, {
+            "Content-Type": "text/csv",
+            "Content-Disposition": 'attachment; filename="journal_export.csv"',
+        }
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/export/greeks-snapshot")
+def export_greeks_snapshot():
+    """Export most-recent per-ticker greeks snapshot as JSON."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT ticker, price, iv, delta, gamma, theta, vega, timestamp "
+            "FROM snapshots WHERE timestamp = (SELECT MAX(timestamp) FROM snapshots) "
+            "ORDER BY ticker"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Draft order routes (Phase 7.2) ──────────────────────────────────────────
+
+@app.route("/api/orders", methods=["GET"])
+def list_orders():
+    try:
+        status_filter = request.args.get("status")
+        conn = get_db()
+        if status_filter:
+            rows = conn.execute(
+                "SELECT id, ticker, strategy, legs_json, status, notes, created_at, updated_at "
+                "FROM draft_orders WHERE status=? ORDER BY updated_at DESC",
+                (status_filter,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, ticker, strategy, legs_json, status, notes, created_at, updated_at "
+                "FROM draft_orders ORDER BY updated_at DESC"
+            ).fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["legs"] = json.loads(d["legs_json"])
+            except Exception:
+                d["legs"] = []
+            out.append(d)
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/orders", methods=["POST"])
+def create_order():
+    """Create a new draft order.
+
+    Body: { "ticker": str, "strategy": str, "legs": [...],
+            "notes": str, "status": "draft"|"staged"|"submitted" }
+    """
+    try:
+        body = request.json or {}
+        ticker = (body.get("ticker") or "").upper()
+        if not ticker:
+            return jsonify({"error": "ticker is required"}), 400
+        now = datetime.now().isoformat()
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO draft_orders (ticker, strategy, legs_json, status, notes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                ticker,
+                body.get("strategy", ""),
+                json.dumps(body.get("legs", [])),
+                body.get("status", "draft"),
+                body.get("notes", ""),
+                now, now,
+            ),
+        )
+        row_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM draft_orders WHERE id=?", (row_id,)).fetchone()
+        conn.close()
+        d = dict(row)
+        d["legs"] = json.loads(d["legs_json"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/orders/<int:order_id>", methods=["PUT"])
+def update_order(order_id):
+    """Update order status, notes, or legs."""
+    try:
+        body = request.json or {}
+        now = datetime.now().isoformat()
+        conn = get_db()
+        if "status" in body:
+            conn.execute("UPDATE draft_orders SET status=?, updated_at=? WHERE id=?",
+                         (body["status"], now, order_id))
+        if "notes" in body:
+            conn.execute("UPDATE draft_orders SET notes=?, updated_at=? WHERE id=?",
+                         (body["notes"], now, order_id))
+        if "legs" in body:
+            conn.execute("UPDATE draft_orders SET legs_json=?, updated_at=? WHERE id=?",
+                         (json.dumps(body["legs"]), now, order_id))
+        if "strategy" in body:
+            conn.execute("UPDATE draft_orders SET strategy=?, updated_at=? WHERE id=?",
+                         (body["strategy"], now, order_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM draft_orders WHERE id=?", (order_id,)).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"error": "not found"}), 404
+        d = dict(row)
+        d["legs"] = json.loads(d["legs_json"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/orders/<int:order_id>", methods=["DELETE"])
+def delete_order(order_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM draft_orders WHERE id=?", (order_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/orders/<int:order_id>/submit", methods=["POST"])
+def submit_order(order_id):
+    """Stage order for broker submission.
+
+    Currently marks status='staged' and notes the pending-broker constraint.
+    When Schwab API order placement is wired (v1.3+), this route will call
+    the Schwab Orders API.
+    """
+    try:
+        now = datetime.now().isoformat()
+        conn = get_db()
+        row = conn.execute("SELECT * FROM draft_orders WHERE id=?", (order_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "not found"}), 404
+        conn.execute(
+            "UPDATE draft_orders SET status='staged', updated_at=?, "
+            "notes=COALESCE(notes,'') || '[Staged " + now[:10] + " — awaiting broker submission]' "
+            "WHERE id=?",
+            (now, order_id)
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM draft_orders WHERE id=?", (order_id,)).fetchone()
+        conn.close()
+        d = dict(row)
+        d["legs"] = json.loads(d["legs_json"])
+        d["_pending_broker"] = True
+        d["_message"] = "Order staged locally. Live broker submission requires Schwab API activation (see DOCKET.md)."
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Risk VaR route (Phase 7.6) ──────────────────────────────────────────────
+
+@app.route("/api/risk/var", methods=["POST"])
+def risk_var():
+    """Compute 1-day and 5-day VaR from a portfolio P&L path array.
+
+    Body: { "portfolio_pnl": [float, ...], "confidence": 0.95 }
+    Returns: { "var_1d": float, "var_5d": float, "cvar_1d": float, "confidence": float }
+    """
+    try:
+        body = request.json or {}
+        pnl = np.array(body.get("portfolio_pnl", []), dtype=float)
+        confidence = float(body.get("confidence", 0.95))
+
+        if len(pnl) < 10:
+            return jsonify({"error": "Need at least 10 P&L paths"}), 400
+
+        # 1-day VaR: percentile of terminal P&L distribution
+        alpha = 1 - confidence
+        var_1d = float(-np.percentile(pnl, alpha * 100))
+
+        # 5-day VaR (square-root-of-time scaling — simplified)
+        var_5d = float(var_1d * np.sqrt(5))
+
+        # CVaR (expected shortfall): mean of losses beyond VaR
+        tail = pnl[pnl < -var_1d]
+        cvar_1d = float(-tail.mean()) if len(tail) > 0 else var_1d
+
+        return jsonify({
+            "var_1d": round(var_1d, 2),
+            "var_5d": round(var_5d, 2),
+            "cvar_1d": round(cvar_1d, 2),
+            "confidence": confidence,
+            "n_paths": len(pnl),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/")

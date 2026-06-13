@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SESSION_KEY = "optionsDashboard_session_v2";
-const TAB_MAP = { positions: "tab-dashboard", risk: "tab-risk", simulate: "tab-simulate", journal: "tab-history" };
+const TAB_MAP = { positions: "tab-dashboard", risk: "tab-risk", simulate: "tab-simulate", journal: "tab-history", orders: "tab-orders" };
 const DEFAULT_ALERT_THRESHOLDS = {
   dteHigh: 7, dteMedium: 21, ivRank: 75, exDivDays: 14,
   portfolioPProfit: 45, tickerPProfit: 35, marksStaleMin: 15,
@@ -939,8 +939,8 @@ function setupKeyboardShortcuts() {
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const tabs = ["positions", "risk", "simulate", "journal"];
-    if (e.key >= "1" && e.key <= "4") { switchToTab(tabs[+e.key - 1]); return; }
+    const tabs = ["positions", "risk", "simulate", "journal", "orders"];
+    if (e.key >= "1" && e.key <= "5") { switchToTab(tabs[+e.key - 1]); return; }
     if (e.key === "/") { e.preventDefault(); openTickerSearch(); return; }
     if (e.key === "r" || e.key === "R") { e.preventDefault(); refreshOptionMarks(); return; }
   });

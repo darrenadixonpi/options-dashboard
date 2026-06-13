@@ -2,6 +2,73 @@
 
 All notable releases of Options Dashboard.
 
+## [Unreleased] — Phase 7 in progress
+
+### Order management (7.2)
+- **`GET/POST /api/orders`** — create and list draft orders with ticker, strategy label, legs JSON, and notes
+- **`PUT/DELETE /api/orders/<id>`** — update or delete an order
+- **`POST /api/orders/<id>/submit`** — stage order (marks as `staged`; broker execution is manual)
+- **Orders tab** — new 5th tab in the UI with draft order list, stage button, and new-order form; legs auto-populated from current what-if builder
+- **Keyboard shortcut `5`** — jump to Orders tab
+
+### Rules engine (7.3)
+- **`GET/POST /api/alert-rules`** — DB-backed alert rules (condition type, ticker, threshold, enabled flag)
+- **`PUT/DELETE /api/alert-rules/<id>`** — update or delete rules
+- **`POST /api/alert-rules/evaluate`** — evaluate all enabled rules against current market data + greeks + sim result; returns triggered rules
+- **Alert rules panel** in the Alerts rail — add/toggle/delete rules inline; conditions include Δ, Θ, IV, P(profit), DTE, VaR
+- Auto-evaluation on every market data fetch (5s debounce)
+
+### Strategy templates (7.4)
+- **`GET/POST /api/strategy-templates`** — save and list named leg configurations
+- **`DELETE /api/strategy-templates/<id>`** — remove a template
+- **Strategy Templates panel** in the Risk/What-if section — save current legs as a named template; apply any saved template to reload legs
+- `strategy_templates` table added to SQLite schema
+
+### Tax lots (7.5)
+- **`tax_lots.py`** — FIFO/LIFO lot matching, short/long-term classification (≥365 days), wash-sale disallowance (±30-day window), Form 8949-compatible CSV export
+- **`POST /api/tax-lots/compute`** — compute realized events with summary (ST/LT gain, wash-sale, net); accepts `method` and `tax_year`
+- **`GET /api/tax-lots/export`** — download Form 8949 CSV
+- **Tax Lots panel** in the Journal tab — FIFO/LIFO selector, year filter, realized events table with box/proceeds/basis/gain/wash-sale columns, Form 8949 download button
+
+### VaR (7.6)
+- **`POST /api/risk/var`** — 1-day and 5-day VaR (95%) from Monte Carlo P&L distribution; CVaR (expected shortfall); √5 scaling for 5-day
+- **VaR panel** in the Risk tab — displays 1d VaR, 5d VaR, CVaR, and path count; populates from existing simulation results
+
+### Notifications (7.7)
+- **`POST /api/notify/test`** — send test SMTP email to `ALERT_EMAIL_TO`
+- **`_send_alert_email()`** — internal helper for triggered rule email dispatch via SMTP
+- **Browser notification** — `Notification.requestPermission()` triggered on first rule evaluation; triggered rules fire `new Notification()`
+- **Enable browser alerts / Send test email** buttons in the Alerts rail
+
+### Data export (7.8)
+- **`GET /api/export/portfolio-history`** — all portfolio snapshots as CSV
+- **`GET /api/export/journal`** — all closed trades as CSV
+- **`GET /api/export/greeks-snapshot`** — latest per-ticker greeks as CSV
+- **Export buttons** in Journal toolbar (Portfolio history, Full journal) and Risk tab (Greeks snapshot)
+
+### Frontend (Phase 7 general)
+- **`static/js/10-phase7.js`** — new module wiring all Phase 7 UI (tax lots, VaR, templates, alert rules, notifications, export, orders)
+- TAB_MAP extended to include `orders: "tab-orders"`
+- `switchToTab()` hooks: loads orders list on Orders tab, refreshes strategy templates on Risk tab
+
+---
+
+## [Unreleased] — Phase 6 in progress
+
+### Schwab API integration
+
+- **`schwab_client.py`** — new `SchwabClient` class: OAuth 2.0 Authorization Code flow (paste-URL, no local HTTPS listener), token persistence to `schwab_token.json`, auto-refresh of access token, 7-day refresh token expiry detection, `get_positions()` normalizer maps Schwab option + equity positions to internal leg format
+- **`GET /api/schwab/status`** — returns `{configured, authenticated, needs_reauth, token_age_hours}`
+- **`GET /api/schwab/auth/url`** — returns Schwab OAuth URL to open in browser
+- **`POST /api/schwab/auth/callback`** — exchange code from pasted redirect URL; saves tokens
+- **`POST /api/schwab/sync`** — fetch + normalize all positions across accounts; response is drop-in for CSV import
+- **`POST /api/schwab/disconnect`** — delete local token
+- **Frontend panel** — Schwab import drawer now shows Connect / Sync / Disconnect UI when `SCHWAB_CLIENT_ID` is configured; falls back to CSV instructions otherwise
+- **`tests/test_schwab_api.py`** — 16 mocked tests covering config, auth URL, callback exchange, position normalization (option + equity + flat skip), disconnect, and all 5 Flask routes
+- **`requests>=2.28`** added to `requirements.txt`
+
+---
+
 ## [Unreleased] — Phase 5 in progress
 
 ### Background refresh

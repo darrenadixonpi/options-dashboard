@@ -11,8 +11,8 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | Track | Status | Doc |
 |-------|--------|-----|
 | **Schwab API registration** | In progress — waiting for developer app **Ready for Use** | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
+| **Schwab API activation** | ⏳ **Blocked on credentials** — code is fully built (Phase 6). Once app is *Ready for Use*: add `SCHWAB_CLIENT_ID` + `SCHWAB_CLIENT_SECRET` to `.env`, restart server, click **Schwab → Connect Schwab Account** in the import drawer. | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **Schwab live CSV validation** | Deferred — user chose API-first path | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 4 |
-| **v1.2 implementation** | Not started — blocked on API app approval + OAuth scaffold | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 3 |
 
 ---
 
@@ -75,6 +75,20 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 | **Export & snapshots** | CSV/PNG everywhere, SQLite fetch log, attribution diff |
 | **Packaging** | `launch.py`, `stop.py`, Docker, optional PyInstaller, esbuild bundle |
 | **Brokers** | Fidelity (validated), Schwab + IBKR (fixture-tested CSV) |
+
+---
+
+## Shipped in Phase 7
+
+| Area | Scope |
+|------|-------|
+| **7.2 Orders** | Draft order builder, staging UI, local persistence (`draft_orders` table), Orders tab (5th tab, kbd `5`) |
+| **7.3 Rules engine** | DB-backed alert rules, auto-evaluation on fetch, browser notifications, SMTP test |
+| **7.4 Strategy templates** | Save/load/apply named leg configurations in what-if builder |
+| **7.5 Tax lots** | `tax_lots.py` — FIFO/LIFO, wash-sale, Form 8949 CSV; Tax Lots panel in Journal tab |
+| **7.6 VaR** | `POST /api/risk/var` — 1d/5d VaR + CVaR from MC distribution; VaR panel in Risk tab |
+| **7.7 Notifications** | Browser push (Notification API) + optional SMTP email alerts |
+| **7.8 Data export** | Portfolio history, journal, and greeks snapshot CSV endpoints + toolbar buttons |
 
 ---
 
