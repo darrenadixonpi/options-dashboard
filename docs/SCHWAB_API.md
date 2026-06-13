@@ -164,7 +164,7 @@ Lower effort than OAuth; good parallel path while waiting for **Ready for Use**.
 | 2026-05-22 | v1.1.0 shipped; Schwab CSV parsers + fixtures only |
 | 2026-05-22 | Decision: prioritize Schwab API over live CSV smoke |
 | 2026-05-22 | Developer app registration walkthrough documented (this file) |
-| _TBD_ | App status → Ready for Use |
-| _TBD_ | v1.2 OAuth + sync implementation |
+| 2026-06-13 | Phase 6 implemented: `schwab_client.py`, `/api/schwab/*` routes, frontend panel, 16 mocked tests |
+| _TBD_ | App status → Ready for Use (activate with SCHWAB_CLIENT_ID + SCHWAB_CLIENT_SECRET in .env) |
 
-Update this table when registration completes or integration milestones land.
+Update this table when registration completes or live credentials are tested.

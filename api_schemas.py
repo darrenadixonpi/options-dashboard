@@ -125,3 +125,32 @@ class GreeksResponse(ApiModel):
 def validate_response(model_cls: type[BaseModel], data: Any) -> dict[str, Any]:
     """Validate API payload and return JSON-serializable dict."""
     return model_cls.model_validate(data).model_dump(mode="json")
+
+
+# ─── Schwab API schemas (Phase 6) ─────────────────────────────────────────────
+
+
+class SchwabStatusResponse(BaseModel):
+    configured: bool
+    authenticated: bool
+    needs_reauth: bool
+    token_age_hours: Optional[float] = None
+    callback_url: Optional[str] = None
+
+
+class SchwabLegResponse(ApiModel):
+    ticker: str
+    posType: str
+    optType: Optional[str] = None
+    strike: Optional[float] = None
+    expiry: Optional[str] = None
+    contracts: int = 0
+    shares: int = 0
+    avgCost: float = 0.0
+    source: str = "schwab_api"
+
+
+class SchwabSyncResponse(BaseModel):
+    positions: list[SchwabLegResponse]
+    position_count: int
+    synced_at: str
