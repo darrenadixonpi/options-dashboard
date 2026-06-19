@@ -43,11 +43,11 @@ Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 comp
 
 | Item | Status |
 |------|--------|
-| Convert remaining JS modules to TypeScript | ⏳ In progress — 12 done (all except the foundational four); only `01-parsers`, `02-portfolio`, `03-render`, `04-state` remain (a dedicated pass: `04-state` carries the `const`-redeclaration surgery for `state`/`TAB_MAP`/etc.) |
+| Convert remaining JS modules to TypeScript | ✅ **Done** — all 16 runtime modules are TypeScript; `state` annotated `AppState` in `04-state.ts`; `npm run typecheck:pilot` green across the whole frontend |
 | Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:pilot`) |
 | Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
 | Full ES modules / drop global script concat | ⏳ Backlog |
-| All 13 runtime modules typechecked under one `tsconfig` | ⏳ |
+| All runtime modules typechecked under one `tsconfig` | ✅ Done — 16 modules under `tsconfig.pilot.json` |
 
 Target: **v1.2+** alongside or after Schwab API (see Next up).
 

@@ -197,22 +197,14 @@ declare global {
   interface ChartHandle {
     destroy(): void;
     resize?(): void;
-    toBase64Image?(type?: string): string;
+    toBase64Image?(type?: string, quality?: number): string;
   }
 
   // ─── Session constants (04-state.js) ─────────────────────────────────────
-  const SESSION_KEY: string;
-  const DEFAULT_ALERT_THRESHOLDS: AlertThresholds;
-  const TAB_MAP: Record<string, string>;
   function updateWideLayoutButton(): void;
   function setupKeyboardShortcuts(): void;
-  // eslint-disable-next-line prefer-const
-  let autoRefreshTimer: ReturnType<typeof setInterval> | null;
-  let simNavObserver: IntersectionObserver | null;
 
   // ─── Global state + chart registry ───────────────────────────────────────
-  const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any; deskAlertFromFetch?: boolean; journalDailyPnl?: any; posSortBy?: string };
-  const chartInstances: Record<string, ChartHandle>;
 
   // ─── Tab / UI navigation ──────────────────────────────────────────────────
   function switchToTab(tab: string, opts?: { scrollTop?: boolean }): void;
@@ -249,7 +241,7 @@ declare global {
   function loadStrategyTemplates(): void;
 
   // ─── Risk / what-if ───────────────────────────────────────────────────────
-  function loadRiskMatrix(): void;
+  function loadRiskMatrix(): Promise<void>;
   function goToRiskMatrix(): void;
   function renderWhatIfList(): void;
   function enableRiskTab(): void;
