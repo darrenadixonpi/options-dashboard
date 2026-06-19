@@ -28,7 +28,7 @@ async function runSimulation(btn, logEl) {
     const payload = state.positions.map(p => ({
       ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry instanceof Date ? p.expiry : new Date(p.expiry as string)) : null, strike: p.strike,
       optType: p.optType, contracts: p.contracts, avgCost: p.avgCost || 0,
-      adjCost: p.adjCost || null, totalPremium: p.totalPremium || 0,
+      adjCost: p.adjCost || null,
       posType: p.posType || "option", shares: p.shares || 0,
     }));
     const { ok, data } = await fetchJson("/api/simulate", {

@@ -179,7 +179,7 @@ where $c_i$ is the average cost (premium paid or received per share).
 
 $$\mathrm{PnL}_i = \text{shares}_i \times (S_T - b_i)$$
 
-where $b_i$ is the adjusted cost basis (raw cost minus collected premium per share).
+where $b_i$ is the broker-reported cost basis. Option premium is **not** folded into $b_i$; each short-option leg credits its own premium separately in the simulation, so premium is counted exactly once.
 
 **Portfolio P&L** is the sum across all positions. From 10,000 draws, the following statistics are reported:
 
@@ -424,7 +424,7 @@ For expired positions: $\bar{p}_{\text{close}} = 0$ (total loss for longs, full 
 
 The full fetch sequence runs in order:
 
-1. **CSV parsing** — positions and fills extracted, closed positions filtered out, share positions reconstructed with premium-adjusted cost basis
+1. **CSV parsing** — positions and fills extracted (each broker file parsed by its own format and merged), closed positions filtered out, share cost basis taken from the broker-reported value (premium is reported separately as Realized P&L, not folded into basis)
 2. **Market data** — batch fetch of price, IV (from option chain), HV20, HV60, IV rank, IV percentile, expected move, ex-dividend dates
 3. **Greeks** — BSM greeks computed per position, aggregated by ticker and portfolio, beta-weighted to SPY
 4. **Events** — earnings dates fetched per ticker via yfinance; custom catalysts loaded from SQLite

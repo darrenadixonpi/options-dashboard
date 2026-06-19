@@ -2,7 +2,7 @@
 
 **v1.2.0** — Local web app for your options portfolio: live market data, Greeks, Monte Carlo simulation, order & rules management, tax lots, VaR, a trade journal, and broker position sync.
 
-> **Scope:** Personal desk tool (localhost). Fidelity is the production-validated path. Schwab and IBKR parse via CSV (fixture-tested); the Schwab OAuth API client is built and activates once developer-app credentials are approved — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). All brokers share one adapter layer (`brokers/`).
+> **Scope:** Personal desk tool (localhost). Fidelity and Schwab CSV imports are both validated on real exports (including merged Fidelity + Schwab history as one continuous journal); IBKR parses via CSV (fixture-tested). The Schwab OAuth API client is built and activates once developer-app credentials are approved — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). All brokers share one adapter layer (`brokers/`).
 
 ## Documentation
 

@@ -149,6 +149,8 @@ Pin upper bound; run `pip-audit` in CI as today.
 
 ## Part 4 — Fallback: live CSV validation
 
+> **Status (2026-06-19): ✅ Done.** Schwab Positions + Transaction exports have been validated on real data. The parser was hardened for Schwab's native option symbols (`TICKER MM/DD/YYYY STRIKE P/C`), per-broker column layouts, and `Journal`/`Transfer`/`Assigned` rows; Schwab history also merges with Fidelity as one continuous journal. The API path below remains the long-term sync mechanism.
+
 If API approval is slow or blocked, validate Schwab without API:
 
 1. Export **Positions** and **Transaction history** from schwab.com

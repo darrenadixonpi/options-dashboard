@@ -124,6 +124,22 @@ def compute_tax_lots(
 
         multiplier = 100 if is_option else 1
 
+        # Direction matters: a SHORT position receives its proceeds at OPEN (premium)
+        # and pays its cost at CLOSE — the reverse of a long round-trip — so its gain is
+        # (open - close), not (close - open). The journal already knows the direction;
+        # recover it from close_type (and pnl sign for expiries) or an explicit flag.
+        ct = (trade.get("close_type") or "").lower()
+        if trade.get("is_short") is not None:
+            is_short = bool(trade.get("is_short"))
+        elif ct in ("btc", "assigned", "short_close", "cover"):
+            is_short = True
+        elif ct in ("stc", "exercised", "long_close"):
+            is_short = False
+        elif ct == "expired":
+            is_short = (trade.get("pnl") or 0) >= 0
+        else:
+            is_short = "short" in (trade.get("strategy") or "").lower()
+
         is_close = close_d is not None
 
         if not is_close:
@@ -138,6 +154,7 @@ def compute_tax_lots(
                 "cost_per_unit": open_price,
                 "remaining": qty,
                 "multiplier": multiplier,
+                "is_short": is_short,
             }
             pool = open_pools.setdefault(key, [])
             if method == "lifo":
@@ -161,6 +178,9 @@ def compute_tax_lots(
                     "cost_per_unit": open_price,
                     "remaining": qty,
                     "multiplier": multiplier,
+                    "is_short": is_short,
+                    "pnl": trade.get("pnl"),
+                    "orig_qty": qty,
                 }
                 pool.append(synthetic)
 
@@ -174,9 +194,27 @@ def compute_tax_lots(
                 hold_days = (close_d - open_date_val).days if (close_d and open_date_val) else 0
                 term = "L" if hold_days >= 365 else "S"
 
-                cost_basis = lot["cost_per_unit"] * matched * multiplier
-                proceeds = close_price * matched * multiplier
-                raw_gain = proceeds - cost_basis
+                # Proceeds = what you received: a short receives its premium at OPEN,
+                # a long receives its sale proceeds at CLOSE.
+                if lot.get("is_short"):
+                    proceeds = lot["cost_per_unit"] * matched * multiplier
+                else:
+                    proceeds = close_price * matched * multiplier
+                # Trust the journal's realized P&L for the gain when present — it already
+                # accounts for short direction, expiries, assignments (premium rolled into
+                # the assigned shares) and orphan closes that a raw open/close recompute
+                # would mis-sign or double-count. Pro-rate across split lots, and derive the
+                # cost basis so that proceeds - cost == gain for Form 8949.
+                lot_pnl = lot.get("pnl")
+                if lot_pnl is not None and lot.get("orig_qty"):
+                    raw_gain = lot_pnl * (matched / lot["orig_qty"])
+                    cost_basis = proceeds - raw_gain
+                else:
+                    if lot.get("is_short"):
+                        cost_basis = close_price * matched * multiplier
+                    else:
+                        cost_basis = lot["cost_per_unit"] * matched * multiplier
+                    raw_gain = proceeds - cost_basis
 
                 event = {
                     "ticker": ticker,

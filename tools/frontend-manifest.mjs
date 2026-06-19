@@ -15,6 +15,7 @@ export const MODULE_ORDER = [
   "12-snapshots.js",
   "10-phase7.js",
   "13-ibkr.js",
+  "main.js",
 ];
 
 export const CHART_CDN = [

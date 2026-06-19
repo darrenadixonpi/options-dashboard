@@ -7,10 +7,10 @@ function reconstructSharePositions(positions, histText) {
   const lines = histText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
 
   // Per-ticker accumulators
-  const tkData = {}; // ticker → {buyCost, buyQty, sellProceeds, sellQty, putPrem, callPrem, putDebit, callDebit, netShares}
+  const tkData = {}; // ticker → {buyCost, buyQty, sellProceeds, sellQty, netShares}
 
   function getTk(ticker) {
-    if (!tkData[ticker]) tkData[ticker] = { buyCost: 0, buyQty: 0, sellProceeds: 0, sellQty: 0, putPrem: 0, callPrem: 0, putDebit: 0, callDebit: 0, netShares: 0 };
+    if (!tkData[ticker]) tkData[ticker] = { buyCost: 0, buyQty: 0, sellProceeds: 0, sellQty: 0, netShares: 0 };
     return tkData[ticker];
   }
 
@@ -37,23 +37,8 @@ function reconstructSharePositions(positions, histText) {
     const occ = isSchwabRow ? parseOptionFromSchwab(sym, r[3]) : parseOCC(sym);
 
     if (occ) {
-      // Net options P&L per underlying: every option SELL is a credit and every
-      // option BUY is a debit, regardless of open/close. This captures short
-      // premium (sold-to-open), buy-to-close debits, AND long legs of spreads
-      // (bought-to-open / sold-to-close). Expiry/assignment/journal/transfer rows
-      // carry no cash (the share side of an assignment is handled below).
-      const isCashTrade = !action.includes("EXPIRED") && !action.includes("ASSIGNED")
-        && !action.includes("JOURNAL") && !action.includes("TRANSFER") && qty > 0;
-      if (isCashTrade) {
-        const isSell = action.includes("SOLD") || action.includes("SELL TO");
-        const isBuy = action.includes("BOUGHT") || action.includes("BUY TO");
-        if (isSell || isBuy) {
-          const d = getTk(occ.ticker);
-          const amt = price * qty * 100;
-          if (isSell) { if (occ.optType === "Put") d.putPrem += amt; else d.callPrem += amt; }
-          else { if (occ.optType === "Put") d.putDebit += amt; else d.callDebit += amt; }
-        }
-      }
+      // Option row — not a share transaction, so it doesn't affect share cost basis.
+      // Realized options P&L is computed by the backend FIFO journal, not here.
     } else {
       // Share transaction
       const ticker = sym.replace(/[*\s]/g, "").toUpperCase();
@@ -98,31 +83,20 @@ function reconstructSharePositions(positions, histText) {
     // Raw basis = the broker-reported cost basis for the CURRENT holding.
     // We do NOT recompute it by netting all-time buys/sells: for an actively-traded
     // ticker the cumulative net (e.g. 1650 bought / 1775 sold) bears no relation to
-    // the lot currently held, and produced negative/garbage averages. History is used
-    // only to layer in the option premium collected on this underlying (wheel basis).
+    // the lot currently held, and produced negative/garbage averages.
     let rawBasis = pos.avgCost || 0;
     if (!rawBasis && d && d.buyQty > 0) {
       // Fallback for formats that don't report a cost basis: average purchase price.
       rawBasis = Math.round(d.buyCost / d.buyQty * 100) / 100;
     }
 
-    // Premium is reported as SEPARATE realized options income on the name — it is
-    // NOT folded into the share cost basis. Cost basis stays the broker-reported
-    // number, so P&L and break-even reflect what these shares actually cost.
-    // (Folding a full year of premium onto a small residual lot produced wildly
-    // misleading "negative basis" figures.)
-    const premGross = d ? (d.putPrem + d.callPrem) : 0;
-    const premDebit = d ? (d.putDebit + d.callDebit) : 0;
-    const netPremium = Math.round(premGross - premDebit);
+    // Premium is NOT folded into the share cost basis — the basis stays the broker-
+    // reported number so P&L and break-even reflect what these shares actually cost.
+    // Realized options income is shown separately, sourced from the backend FIFO journal.
     result.push({
       ...pos,
       avgCost: rawBasis,
       adjCost: rawBasis, // intentionally equal: premium is not blended into basis
-      premiumIncome: netPremium,
-      premiumGross: Math.round(premGross),
-      premiumDebit: Math.round(premDebit),
-      putPremium: d ? Math.round(d.putPrem - d.putDebit) : 0,
-      callPremium: d ? Math.round(d.callPrem - d.callDebit) : 0,
       costBasisComputed: false,
     });
   }
@@ -565,10 +539,6 @@ function buildPortfolio(positions, fills, marketData) {
           strike: null, optType: null, contracts: totalShares,
           status: tPos[0].status, severity: tPos[0].severity,
           avgCost: tPos[0].avgCost, adjCost: tPos[0].adjCost || null,
-          premiumIncome: tPos[0].premiumIncome || 0,
-          premiumGross: tPos[0].premiumGross || 0,
-          premiumDebit: tPos[0].premiumDebit || 0,
-          totalPremium: tPos[0].totalPremium || 0,
           costBasisComputed: tPos[0].costBasisComputed || false,
           shares: totalShares, lots: []
         }]

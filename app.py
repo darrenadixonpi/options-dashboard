@@ -1227,13 +1227,25 @@ def simulate():
                 current_shares = eq.get("shares", eq.get("contracts", 0))
                 adj_cost = eq.get("adjCost") or eq.get("avgCost", 0)
                 raw_cost = eq.get("avgCost", 0)
-                total_premium = eq.get("totalPremium", 0)
+                # Premium credited toward break-even = premium collected on the CURRENTLY
+                # OPEN short options modeled here (each leg's entry price × 100 × contracts).
+                # Replaces the removed equity-level totalPremium and, by design, excludes
+                # realized premium from already-closed trades (that belongs in Realized P&L,
+                # not a forward break-even).
+                total_premium = sum(
+                    abs(l.get("contracts", 0)) * (l.get("avgCost", 0) or 0) * 100
+                    for l in short_puts + short_calls
+                )
                 net_investment = abs(current_shares) * raw_cost
 
-                if adj_cost and adj_cost > 0:
+                shares_abs = abs(current_shares) or 0
+                # "All expire" = every short option expires worthless and you keep the
+                # premium, so the share break-even is the cost basis minus premium per share.
+                be_expire = round(adj_cost - (total_premium / shares_abs if shares_abs else 0), 4)
+                if be_expire and be_expire > 0:
                     breakevens.append({
-                        "value": round(adj_cost, 4),
-                        "label": f"${adj_cost:g} BE (all expire, {abs(current_shares)}sh)",
+                        "value": be_expire,
+                        "label": f"${be_expire:g} BE (all expire, {shares_abs}sh)",
                         "beType": "expire",
                     })
 
@@ -2515,6 +2527,16 @@ def _rollup_assignment_pnl(closed_trades):
         t["pnl"] = combined
         t["isWin"] = combined > 0
         t["assignmentRollup"] = True
+        # Stash the equity-leg details so the tax-lot / Form 8949 layer can present this
+        # assignment as a STOCK sale with premium-adjusted basis (strike − premium),
+        # rather than mislabeling it as an option row.
+        t["assignedEquity"] = {
+            "qty": eq_trade.get("qty"),
+            "openDate": eq_trade.get("openDate"),
+            "closeDate": eq_trade.get("closeDate"),
+            "acquirePrice": eq_trade.get("avgOpen"),
+            "salePrice": eq_trade.get("avgClose"),
+        }
         eq_trade["journalSuppress"] = True
         eq_trade["rollupInto"] = {
             "ticker": t["ticker"],
@@ -3239,13 +3261,36 @@ def trade_history():
         try:
             conn = get_db()
             conn.execute("DELETE FROM closed_trades")
-            for t in closed_trades:
+            # Persist only the journal-aggregate trades (the same set the journal totals
+            # use): this excludes roll-open reference rows (pnl 0) and the equity legs of
+            # assignments, whose P&L is already folded into the linked option row's combined
+            # pnl. Writing every row would double-count assigned-share P&L in the tax-lot.
+            for t in journal_trades:
+                ae = t.get("assignedEquity")
+                if ae:
+                    # Present an assigned option as a STOCK sale with premium-adjusted
+                    # basis: proceeds = share sale, cost basis = strike − premium per share
+                    # (derived from the combined pnl downstream). One 8949 line per the
+                    # economic event, labeled as the underlying rather than an option.
+                    shares = ae.get("qty") or (t["qty"] * 100)
+                    sale_price = ae.get("salePrice") or 0
+                    prem_per_share = (t.get("optionLegPnl") or 0) / shares if shares else 0
+                    acquire = ae.get("acquirePrice")
+                    if acquire is None:
+                        acquire = t.get("strike") or 0
+                    adj_basis = round(acquire - prem_per_share, 4)
+                    row = (t["ticker"].lower(), t["ticker"], "Stock", 0,
+                           ae.get("openDate") or t["openDate"], ae.get("closeDate") or t["closeDate"],
+                           adj_basis, sale_price, shares, t["pnl"], t.get("strategy"), "sold")
+                else:
+                    row = (t["symbol"], t["ticker"], t["optType"], t.get("strike"),
+                           t["openDate"], t["closeDate"], t["avgOpen"], t["avgClose"],
+                           t["qty"], t["pnl"], t["strategy"], t["closeType"])
                 conn.execute(
                     """INSERT INTO closed_trades (occ_symbol, ticker, opt_type, strike, open_date, close_date,
                        open_price, close_price, quantity, pnl, strategy, close_type)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (t["symbol"], t["ticker"], t["optType"], t.get("strike"), t["openDate"], t["closeDate"],
-                     t["avgOpen"], t["avgClose"], t["qty"], t["pnl"], t["strategy"], t["closeType"]),
+                    row,
                 )
             conn.commit()
             conn.close()
@@ -4649,7 +4694,7 @@ def tax_lots_compute():
             conn = get_db()
             rows = conn.execute(
                 "SELECT ticker, opt_type, strike, open_date, close_date, "
-                "open_price, close_price, quantity, pnl, strategy FROM closed_trades "
+                "open_price, close_price, quantity, pnl, strategy, close_type FROM closed_trades "
                 "ORDER BY open_date ASC"
             ).fetchall()
             conn.close()
@@ -4675,7 +4720,7 @@ def tax_lots_export():
         conn = get_db()
         rows = conn.execute(
             "SELECT ticker, opt_type, strike, open_date, close_date, "
-            "open_price, close_price, quantity, pnl FROM closed_trades "
+            "open_price, close_price, quantity, pnl, strategy, close_type FROM closed_trades "
             "ORDER BY open_date ASC"
         ).fetchall()
         conn.close()
