@@ -18,7 +18,8 @@
     "static/js/13-ibkr.ts",
     "static/js/12-snapshots.ts",
     "static/js/09-risk.ts",
-    "static/js/10-journal.ts"
+    "static/js/10-journal.ts",
+    "static/js/11-roll-catalysts-init.ts"
   ],
   "exclude": ["static/dist/**", "node_modules/**"]
 }

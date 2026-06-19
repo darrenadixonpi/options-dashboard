@@ -5,7 +5,7 @@ All notable releases of Options Dashboard.
 ## [Unreleased]
 
 ### TypeScript migration (Phase 3, in progress)
-- Converted **`13-ibkr`**, **`12-snapshots`**, and **`09-risk`** from JS to TypeScript (DOM-element casts, typed fetch helpers, narrowed `expiry` handling); extended the `state` ambient type with `_volSurfaceData`. All added to `tsconfig.pilot.json` + `.gitignore`; **`npm run typecheck:pilot` passes**. Seven modules are now TS source (`03-chart-utils`, `05-session-api`, `08-simulate`, `09-risk`, `10-journal`, `12-snapshots`, `13-ibkr`); the build transpiles each to a sibling `.js` for dev script tags. (To finish the cutover, `git rm --cached` the generated `.js` files so they stop being tracked.)
+- Converted **`13-ibkr`**, **`12-snapshots`**, and **`09-risk`** from JS to TypeScript (DOM-element casts, typed fetch helpers, narrowed `expiry` handling); extended the `state` ambient type with `_volSurfaceData`. All added to `tsconfig.pilot.json` + `.gitignore`; **`npm run typecheck:pilot` passes**. Eight modules are now TS source (`03-chart-utils`, `05-session-api`, `08-simulate`, `09-risk`, `10-journal`, `11-roll-catalysts-init`, `12-snapshots`, `13-ibkr`); the build transpiles each to a sibling `.js` for dev script tags. (To finish the cutover, `git rm --cached` the generated `.js` files so they stop being tracked.)
 
 ### IBKR Flex Web Service sync
 - **`ibkr_flex_client.py`** — `IBKRFlexClient`: token + Activity-query positions sync over the Flex Web Service (two-step SendRequest→GetStatement with poll/backoff), XML→canonical-leg normalizer, config persisted to a local gitignored `ibkr_flex.json` (env-overridable)

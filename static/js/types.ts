@@ -203,6 +203,9 @@ declare global {
   // ─── Session constants (04-state.js) ─────────────────────────────────────
   const SESSION_KEY: string;
   const DEFAULT_ALERT_THRESHOLDS: AlertThresholds;
+  const TAB_MAP: Record<string, string>;
+  function updateWideLayoutButton(): void;
+  function setupKeyboardShortcuts(): void;
   // eslint-disable-next-line prefer-const
   let autoRefreshTimer: ReturnType<typeof setInterval> | null;
 
