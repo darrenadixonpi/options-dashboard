@@ -9,20 +9,20 @@ Classic scripts loaded in order (shared global scope). Edit the module that matc
 | `03-render.js` | `renderPortfolio`, strike/ticker HTML |
 | `04-state.js` | `state`, charts registry, rail, export (PNG + CSV), chart export helpers, keyboard, wide layout |
 | `05-session-api.ts` | Session save/restore, fetch helpers, attribution, what-if, import drop zones **(TS pilot — source)** |
-| `06-fetch.js` | Fetch pipeline click handler |
-| `07-tabs.js` | Tab switching, what-if form handlers, journal cumulative P&L chart |
+| `06-fetch.ts` | Fetch pipeline click handler **(TS — source)** |
+| `07-tabs.ts` | Tab switching, what-if form handlers, journal cumulative P&L chart **(TS — source)** |
 | `03-chart-utils.ts` | Chart.js crosshair plugin, pan/zoom helpers, fan-chart label layout **(TS — source)** |
 | `08-simulate.ts` | Monte Carlo results, path charts, histogram range UX **(TS pilot — source)** |
 | `09-risk.ts` | Risk matrix, vol surface, unusual activity **(TS — source)** |
 | `10-journal.ts` | Closed trade table **(TS — source)** |
 | `11-roll-catalysts-init.ts` | Roll modal, catalysts, app boot **(TS — source)** |
 | `12-snapshots.ts` | Desk snapshot history UI **(TS — source)** |
-| `10-phase7.js` | Phase 7 UI — orders, rules, tax lots, VaR, export |
+| `10-phase7.ts` | Phase 7 UI — orders, rules, tax lots, VaR, export **(TS — source)** |
 | `13-ibkr.ts` | IBKR Flex panel (status / save / sync / disconnect) **(TS — source)** |
 | `types.ts` | Shared TypeScript interfaces (not loaded at runtime) |
-| `main.js` | Positions sort + ticker filter + background-refresh badge; also the bundler entry. Loaded **last**. |
+| `main.ts` | Positions sort + ticker filter + background-refresh badge; also the bundler entry. Loaded **last**. **(TS — source)** |
 
-**TypeScript modules:** `03-chart-utils.ts`, `05-session-api.ts`, `08-simulate.ts`, `09-risk.ts`, `10-journal.ts`, `11-roll-catalysts-init.ts`, `12-snapshots.ts`, and `13-ibkr.ts` are the source of truth (typechecked via `tsconfig.pilot.json`). `npm run build` emits the sibling `.js` for dev script tags (gitignored). CI and `start.bat` run the build automatically. To convert another module: rename `X.js` → `X.ts`, add it to `tsconfig.pilot.json` `include` + `.gitignore`, fix DOM casts (`getElementById(...) as HTMLInputElement`), and run `npm run typecheck:pilot`. Cross-module globals resolve if they're declared in `types.ts` (`declare global`) or defined in another included `.ts`.
+**TypeScript modules:** all runtime modules except the foundational four (`01-parsers`, `02-portfolio`, `03-render`, `04-state`) are now TypeScript source — `03-chart-utils`, `05-session-api`, `06-fetch`, `07-tabs`, `08-simulate`, `09-risk`, `10-journal`, `10-phase7`, `11-roll-catalysts-init`, `12-snapshots`, `13-ibkr`, `main` (typechecked via `tsconfig.pilot.json`). `npm run build` emits the sibling `.js` for dev script tags (gitignored). CI and `start.bat` run the build automatically. To convert another module: rename `X.js` → `X.ts`, add it to `tsconfig.pilot.json` `include` + `.gitignore`, fix DOM casts (`getElementById(...) as HTMLInputElement`), and run `npm run typecheck:pilot`. Cross-module globals resolve if they're declared in `types.ts` (`declare global`) or defined in another included `.ts`.
 
 **Phase 3 remainder** (convert all modules, drop `@ts-nocheck`, etc.): see [DOCKET.md](../../DOCKET.md).
 

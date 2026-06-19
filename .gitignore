@@ -21,3 +21,7 @@ ibkr_flex.json
 static/js/09-risk.js
 static/js/10-journal.js
 static/js/11-roll-catalysts-init.js
+static/js/06-fetch.js
+static/js/07-tabs.js
+static/js/10-phase7.js
+static/js/main.js

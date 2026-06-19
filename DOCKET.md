@@ -43,7 +43,7 @@ Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 comp
 
 | Item | Status |
 |------|--------|
-| Convert remaining JS modules to TypeScript | ⏳ In progress — 8 done (`03-chart-utils`, `05-session-api`, `08-simulate`, `13-ibkr`, `09-risk`, `12-snapshots`, `10-journal`, `11-roll-catalysts-init`); ~8 JS modules remain |
+| Convert remaining JS modules to TypeScript | ⏳ In progress — 12 done (all except the foundational four); only `01-parsers`, `02-portfolio`, `03-render`, `04-state` remain (a dedicated pass: `04-state` carries the `const`-redeclaration surgery for `state`/`TAB_MAP`/etc.) |
 | Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:pilot`) |
 | Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
 | Full ES modules / drop global script concat | ⏳ Backlog |

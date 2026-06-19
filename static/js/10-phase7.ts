@@ -60,8 +60,8 @@ function renderTaxLots(data, panel) {
     tableHtml = '<div style="color:var(--tx3);font-size:12px;margin-bottom:10px">No realized events for selected year.</div>';
   }
 
-  const methodSel = document.getElementById("tax-method")?.value || "fifo";
-  const yearSel = document.getElementById("tax-year")?.value || "";
+  const methodSel = (document.getElementById("tax-method") as HTMLInputElement | null)?.value || "fifo";
+  const yearSel = (document.getElementById("tax-year") as HTMLInputElement | null)?.value || "";
   const exportUrl = `/api/tax-lots/export?method=${methodSel}&tax_year=${yearSel}`;
 
   panel.innerHTML = summaryHtml + tableHtml +
@@ -140,8 +140,8 @@ async function loadStrategyTemplates() {
 }
 
 async function saveStrategyTemplate() {
-  const nameEl = document.getElementById("template-name");
-  const descEl = document.getElementById("template-desc");
+  const nameEl = document.getElementById("template-name") as HTMLInputElement | null;
+  const descEl = document.getElementById("template-desc") as HTMLInputElement | null;
   const name = nameEl?.value?.trim();
   if (!name) { alert("Enter a template name."); return; }
   if (!state.hypothetical?.length) { alert("Add hypothetical legs first."); return; }
@@ -205,10 +205,10 @@ async function loadAlertRules() {
 }
 
 async function addAlertRule() {
-  const ct = document.getElementById("rule-condition-type")?.value;
-  const ticker = document.getElementById("rule-ticker")?.value?.trim().toUpperCase();
-  const threshold = parseFloat(document.getElementById("rule-threshold")?.value);
-  const name = document.getElementById("rule-name")?.value?.trim() || ct;
+  const ct = (document.getElementById("rule-condition-type") as HTMLInputElement | null)?.value;
+  const ticker = (document.getElementById("rule-ticker") as HTMLInputElement | null)?.value?.trim().toUpperCase();
+  const threshold = parseFloat((document.getElementById("rule-threshold") as HTMLInputElement | null)?.value);
+  const name = (document.getElementById("rule-name") as HTMLInputElement | null)?.value?.trim() || ct;
   if (!ct) return;
 
   const res = await fetch("/api/alert-rules", {
@@ -268,7 +268,7 @@ function requestNotificationPermission() {
 }
 
 async function testEmailNotification() {
-  const btn = document.getElementById("btn-test-email");
+  const btn = document.getElementById("btn-test-email") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
   try {
     const res = await fetch("/api/notify/test", { method: "POST" });
@@ -341,9 +341,9 @@ function renderOrders() {
 }
 
 async function createDraftOrder() {
-  const ticker = document.getElementById("order-ticker")?.value?.trim().toUpperCase();
-  const strategy = document.getElementById("order-strategy")?.value?.trim();
-  const notes = document.getElementById("order-notes")?.value?.trim();
+  const ticker = (document.getElementById("order-ticker") as HTMLInputElement | null)?.value?.trim().toUpperCase();
+  const strategy = (document.getElementById("order-strategy") as HTMLInputElement | null)?.value?.trim();
+  const notes = (document.getElementById("order-notes") as HTMLInputElement | null)?.value?.trim();
   if (!ticker) { alert("Enter a ticker."); return; }
 
   // Use current what-if legs if any, otherwise empty
@@ -355,8 +355,8 @@ async function createDraftOrder() {
   });
   const data = await res.json();
   if (data.error) { alert(data.error); return; }
-  document.getElementById("order-ticker").value = "";
-  document.getElementById("order-notes").value = "";
+  (document.getElementById("order-ticker") as HTMLInputElement).value = "";
+  (document.getElementById("order-notes") as HTMLInputElement).value = "";
   loadOrders();
 }
 

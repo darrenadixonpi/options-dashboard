@@ -10,13 +10,13 @@
 function applyTickerFilter(query) {
   const q = (query || "").trim().toUpperCase();
   document.querySelectorAll("#portfolio-body .tk-block").forEach(block => {
-    const ticker = (block.dataset.ticker || "").toUpperCase();
+    const ticker = ((block as HTMLElement).dataset.ticker || "").toUpperCase();
     block.classList.toggle("pos-filtered-out", q.length > 0 && !ticker.startsWith(q));
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const filterInput = document.getElementById("pos-ticker-filter");
+  const filterInput = document.getElementById("pos-ticker-filter") as HTMLInputElement | null;
   if (filterInput) {
     filterInput.addEventListener("input", () => applyTickerFilter(filterInput.value));
     // Clear filter on Escape
@@ -26,9 +26,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document.getElementById("pos-filter-bar")?.addEventListener("click", e => {
-    const btn = e.target.closest(".pos-sort-btn");
+    const btn = (e.target as HTMLElement).closest(".pos-sort-btn");
     if (!btn) return;
-    state.posSortBy = btn.dataset.sort;
+    state.posSortBy = (btn as HTMLElement).dataset.sort;
     document.querySelectorAll(".pos-sort-btn").forEach(b => b.classList.toggle("active", b === btn));
     if (state.portfolio) renderPortfolio(state.portfolio, !!state.marketData);
   });

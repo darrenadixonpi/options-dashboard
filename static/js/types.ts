@@ -208,9 +208,10 @@ declare global {
   function setupKeyboardShortcuts(): void;
   // eslint-disable-next-line prefer-const
   let autoRefreshTimer: ReturnType<typeof setInterval> | null;
+  let simNavObserver: IntersectionObserver | null;
 
   // ─── Global state + chart registry ───────────────────────────────────────
-  const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any };
+  const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any; deskAlertFromFetch?: boolean; journalDailyPnl?: any; posSortBy?: string };
   const chartInstances: Record<string, ChartHandle>;
 
   // ─── Tab / UI navigation ──────────────────────────────────────────────────
@@ -238,6 +239,14 @@ declare global {
   function normalizeStrategyLabel(label: string | null | undefined): string;
   function renderPositionsRail(): void;
   function persistAttributionSnapshot(): Promise<void>;
+  function parsePositions(text: string): { positions: PositionRow[]; format: string; hint?: string };
+  function parseHistory(text: string): Record<string, unknown>[];
+  function filterClosedPositions(positions: PositionRow[], histTexts: string[]): PositionRow[];
+  function reconstructSharePositions(positions: PositionRow[], histText: string | string[]): PositionRow[];
+  function formatParseHint(format: string, broker?: string): string;
+  function persistFetchSession(): void;
+  function loadOrders(): void;
+  function loadStrategyTemplates(): void;
 
   // ─── Risk / what-if ───────────────────────────────────────────────────────
   function loadRiskMatrix(): void;

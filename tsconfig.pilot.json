@@ -19,7 +19,11 @@
     "static/js/12-snapshots.ts",
     "static/js/09-risk.ts",
     "static/js/10-journal.ts",
-    "static/js/11-roll-catalysts-init.ts"
+    "static/js/11-roll-catalysts-init.ts",
+    "static/js/06-fetch.ts",
+    "static/js/07-tabs.ts",
+    "static/js/10-phase7.ts",
+    "static/js/main.ts"
   ],
   "exclude": ["static/dist/**", "node_modules/**"]
 }
