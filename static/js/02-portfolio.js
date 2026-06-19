@@ -7,10 +7,10 @@ function reconstructSharePositions(positions, histText) {
   const lines = histText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
 
   // Per-ticker accumulators
-  const tkData = {}; // ticker → {buyCost, buyQty, sellProceeds, sellQty, putPrem, callPrem, netShares}
+  const tkData = {}; // ticker → {buyCost, buyQty, sellProceeds, sellQty, putPrem, callPrem, putDebit, callDebit, netShares}
 
   function getTk(ticker) {
-    if (!tkData[ticker]) tkData[ticker] = { buyCost: 0, buyQty: 0, sellProceeds: 0, sellQty: 0, putPrem: 0, callPrem: 0, netShares: 0 };
+    if (!tkData[ticker]) tkData[ticker] = { buyCost: 0, buyQty: 0, sellProceeds: 0, sellQty: 0, putPrem: 0, callPrem: 0, putDebit: 0, callDebit: 0, netShares: 0 };
     return tkData[ticker];
   }
 
@@ -21,19 +21,38 @@ function reconstructSharePositions(positions, histText) {
     if (!ds || !/^\d/.test(ds)) continue;
     const action = (r[1] || "").trim().toUpperCase();
     const sym = (r[2] || "").trim();
+    // Per-row column detection: Schwab rows carry a numeric Quantity in col4
+    // (Fidelity col4 is the account Type, e.g. "Margin"/"Cash"); Fidelity Quantity is col6.
+    // The merged history blob interleaves both layouts, so detect per row.
+    const c4 = (r[4] || "").trim();
+    const isSchwabRow = c4 !== "" && /^-?[\d,]+(\.\d+)?$/.test(c4);
     const price = Math.abs(parseFloat((r[5] || "").replace(/[$,+]/g, "")) || 0);
-    const qty = Math.abs(parseInt(parseFloat(r[6] || "0"))) || 0;
+    const qty = isSchwabRow
+      ? (Math.abs(parseInt(parseFloat(c4.replace(/,/g, "")))) || 0)
+      : (Math.abs(parseInt(parseFloat(r[6] || "0"))) || 0);
     if (qty === 0 && !action.includes("EXPIRED") && !action.includes("ASSIGNED")) continue;
 
-    const occ = parseOCC(sym);
+    // Schwab uses native symbols ("OVID 06/18/2026 2.50 P"); parseOptionFromSchwab
+    // falls back to parseOCC, which also covers Fidelity-style OCC symbols.
+    const occ = isSchwabRow ? parseOptionFromSchwab(sym, r[3]) : parseOCC(sym);
 
     if (occ) {
-      // Option transaction — track premium per underlying ticker
-      if (action.includes("OPENING TRANSACTION") && action.includes("SOLD")) {
-        const d = getTk(occ.ticker);
-        const prem = price * qty * 100;
-        if (occ.optType === "Put") d.putPrem += prem;
-        else d.callPrem += prem;
+      // Net options P&L per underlying: every option SELL is a credit and every
+      // option BUY is a debit, regardless of open/close. This captures short
+      // premium (sold-to-open), buy-to-close debits, AND long legs of spreads
+      // (bought-to-open / sold-to-close). Expiry/assignment/journal/transfer rows
+      // carry no cash (the share side of an assignment is handled below).
+      const isCashTrade = !action.includes("EXPIRED") && !action.includes("ASSIGNED")
+        && !action.includes("JOURNAL") && !action.includes("TRANSFER") && qty > 0;
+      if (isCashTrade) {
+        const isSell = action.includes("SOLD") || action.includes("SELL TO");
+        const isBuy = action.includes("BOUGHT") || action.includes("BUY TO");
+        if (isSell || isBuy) {
+          const d = getTk(occ.ticker);
+          const amt = price * qty * 100;
+          if (isSell) { if (occ.optType === "Put") d.putPrem += amt; else d.callPrem += amt; }
+          else { if (occ.optType === "Put") d.putDebit += amt; else d.callDebit += amt; }
+        }
       }
     } else {
       // Share transaction
@@ -54,13 +73,13 @@ function reconstructSharePositions(positions, histText) {
         d.buyCost += price * qty;
         d.buyQty += qty;
         d.netShares += qty;
-      } else if (action.includes("BOUGHT") && !action.includes("SHORT")) {
-        // Regular buy
+      } else if ((action.includes("BOUGHT") || action.startsWith("BUY")) && !action.includes("SHORT") && !action.includes("TO OPEN") && !action.includes("TO CLOSE")) {
+        // Regular buy (Fidelity "YOU BOUGHT..." / Schwab "Buy")
         d.buyCost += price * qty;
         d.buyQty += qty;
         d.netShares += qty;
-      } else if (action.includes("SOLD") && !action.includes("SHORT") && !action.includes("OPENING")) {
-        // Regular sell
+      } else if ((action.includes("SOLD") || action.startsWith("SELL")) && !action.includes("SHORT") && !action.includes("OPENING") && !action.includes("TO OPEN") && !action.includes("TO CLOSE")) {
+        // Regular sell (Fidelity "YOU SOLD..." / Schwab "Sell")
         d.sellProceeds += price * qty;
         d.sellQty += qty;
         d.netShares -= qty;
@@ -73,35 +92,39 @@ function reconstructSharePositions(positions, histText) {
   for (const pos of positions) {
     if (pos.posType !== "equity") { result.push(pos); continue; }
 
-    const ticker = pos.ticker;
-    const d = tkData[ticker];
+    const d = tkData[pos.ticker];
+    const shares = Math.abs(pos.shares || pos.contracts || 0);
 
-    // If history shows net 0 → fully closed, remove
-    if (d && d.netShares === 0) continue;
-
-    // Compute all-in adjusted basis
-    if (d && d.buyQty > 0) {
-      const netShares = Math.abs(d.netShares) || Math.abs(pos.shares || pos.contracts || 0);
-      if (netShares > 0) {
-        const netInvestment = d.buyCost - d.sellProceeds;
-        const totalPremium = d.putPrem + d.callPrem;
-        const rawBasis = Math.round(netInvestment / netShares * 100) / 100;
-        const adjBasis = Math.round((netInvestment - totalPremium) / netShares * 100) / 100;
-
-        result.push({
-          ...pos,
-          avgCost: rawBasis,
-          adjCost: adjBasis,
-          totalPremium: Math.round(totalPremium),
-          putPremium: Math.round(d.putPrem),
-          callPremium: Math.round(d.callPrem),
-          costBasisComputed: true,
-        });
-        continue;
-      }
+    // Raw basis = the broker-reported cost basis for the CURRENT holding.
+    // We do NOT recompute it by netting all-time buys/sells: for an actively-traded
+    // ticker the cumulative net (e.g. 1650 bought / 1775 sold) bears no relation to
+    // the lot currently held, and produced negative/garbage averages. History is used
+    // only to layer in the option premium collected on this underlying (wheel basis).
+    let rawBasis = pos.avgCost || 0;
+    if (!rawBasis && d && d.buyQty > 0) {
+      // Fallback for formats that don't report a cost basis: average purchase price.
+      rawBasis = Math.round(d.buyCost / d.buyQty * 100) / 100;
     }
 
-    result.push(pos);
+    // Premium is reported as SEPARATE realized options income on the name — it is
+    // NOT folded into the share cost basis. Cost basis stays the broker-reported
+    // number, so P&L and break-even reflect what these shares actually cost.
+    // (Folding a full year of premium onto a small residual lot produced wildly
+    // misleading "negative basis" figures.)
+    const premGross = d ? (d.putPrem + d.callPrem) : 0;
+    const premDebit = d ? (d.putDebit + d.callDebit) : 0;
+    const netPremium = Math.round(premGross - premDebit);
+    result.push({
+      ...pos,
+      avgCost: rawBasis,
+      adjCost: rawBasis, // intentionally equal: premium is not blended into basis
+      premiumIncome: netPremium,
+      premiumGross: Math.round(premGross),
+      premiumDebit: Math.round(premDebit),
+      putPremium: d ? Math.round(d.putPrem - d.putDebit) : 0,
+      callPremium: d ? Math.round(d.callPrem - d.callDebit) : 0,
+      costBasisComputed: false,
+    });
   }
 
   return result;
@@ -542,6 +565,9 @@ function buildPortfolio(positions, fills, marketData) {
           strike: null, optType: null, contracts: totalShares,
           status: tPos[0].status, severity: tPos[0].severity,
           avgCost: tPos[0].avgCost, adjCost: tPos[0].adjCost || null,
+          premiumIncome: tPos[0].premiumIncome || 0,
+          premiumGross: tPos[0].premiumGross || 0,
+          premiumDebit: tPos[0].premiumDebit || 0,
           totalPremium: tPos[0].totalPremium || 0,
           costBasisComputed: tPos[0].costBasisComputed || false,
           shares: totalShares, lots: []

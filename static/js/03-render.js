@@ -6,6 +6,32 @@
 
 const SEV_CLASS={ok:"badge-ok",warn:"badge-warn",danger:"badge-danger",deep:"badge-deep",atm:"badge-atm"};
 
+// Realized P&L per ticker from the backend FIFO closed-trades (state.tradeHistory.trades).
+// This is the source of truth: shares matched at cost basis, options signed for short/long,
+// assigned/expired counted as closed. Cached on the tradeHistory object.
+function realizedPnlByTicker() {
+  const th = state.tradeHistory;
+  if (!th || !Array.isArray(th.trades)) return {};
+  if (th._realizedMap) return th._realizedMap;
+  const m = {};
+  for (const t of th.trades) {
+    const tk = (t.ticker || "").toUpperCase();
+    if (!tk) continue;
+    const pnl = t.pnl || 0;
+    const o = m[tk] || (m[tk] = { total: 0, shares: 0, options: 0 });
+    o.total += pnl;
+    if (t.instrument === "option") o.options += pnl; else o.shares += pnl;
+  }
+  th._realizedMap = m;
+  return m;
+}
+
+// Compact signed dollars, e.g. +$1,234 / −$987.
+function fmtSignedUsd(v) {
+  const n = Math.round(v || 0);
+  return `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString()}`;
+}
+
 // Strategy name compression utility
 function compressStrategy(strategy) {
   if (!strategy) return "";
@@ -232,24 +258,20 @@ function renderStrike(sg, posType, tg) {
 
   if (isEquity) {
     const dir = sg.contracts > 0 ? "Long" : "Short";
-    const basis = sg.adjCost || sg.avgCost || 0;
+    // Cost basis = broker-reported avg cost. Premium is NOT blended in.
     const rawBasis = sg.avgCost || 0;
-    const pnl = sg.contracts && tg.price && basis ? Math.round((tg.price - basis) * sg.contracts) : 0;
-    const premCollected = sg.totalPremium || 0;
-    const hasAdj = sg.adjCost && sg.adjCost !== sg.avgCost;
-    const eqPnlNote = !state.rawHistTexts?.length && !hasAdj
-      ? `<span style="font-size:10px;color:var(--warn-tx)">Unrealized vs avg cost only (upload History for adj basis / BE)</span>` : "";
+    const pnl = sg.contracts && tg.price && rawBasis ? Math.round((tg.price - rawBasis) * sg.contracts) : 0;
+    // Realized P&L from the FIFO closed-trades (closed shares + closed/assigned/expired options).
+    const realized = realizedPnlByTicker()[tg.ticker] || null;
+    const eqPnlNote = !state.rawHistTexts?.length
+      ? `<span style="font-size:10px;color:var(--warn-tx)">Unrealized vs avg cost (upload History for realized P&L)</span>` : "";
     html += `<div class="strike-section" data-leg-id="${esc(tg.ticker)}|equity"><div class="strike-info">
       <div class="strike-top"><span class="strike-val">${dir} ${Math.abs(sg.contracts)} sh</span></div>
-      ${hasAdj
-        ? `<span class="cts-val" style="text-decoration:line-through;opacity:0.5">Raw $${rawBasis.toFixed(2)}</span>
-           <span class="cts-val" style="color:var(--ok-tx)">Adj $${sg.adjCost.toFixed(2)}</span>`
-        : `<span class="cts-val">Avg $${rawBasis ? rawBasis.toFixed(2) : "?"}</span>`}
-      ${premCollected > 0 ? `<span class="cts-val" style="font-size:10px;color:var(--ok-tx)">$${premCollected.toLocaleString()} prem collected</span>` : ""}
+      <span class="cts-val">Avg $${rawBasis ? rawBasis.toFixed(2) : "?"}</span>
     </div>
     <div style="font-family:var(--mono);font-size:13px;color:var(--tx2);display:flex;flex-direction:column;gap:2px">
-      <span>P&L: <span style="color:${pnl>=0?"var(--ok-tx)":"var(--err-tx)"}">${pnl>=0?"+":""}$${pnl.toLocaleString()}</span></span>
-      ${hasAdj ? `<span style="font-size:10px;color:var(--tx3)">BE: $${sg.adjCost.toFixed(2)}</span>` : ""}
+      <span>Share P&L: <span style="color:${pnl>=0?"var(--ok-tx)":"var(--err-tx)"}">${pnl>=0?"+":""}$${pnl.toLocaleString()}</span> <span style="font-size:10px;color:var(--tx3)">unrealized</span></span>
+      ${realized ? `<span style="font-size:11px">Realized P&L: <span style="color:${realized.total>=0?"var(--ok-tx)":"var(--err-tx)"}">${fmtSignedUsd(realized.total)}</span> <span style="font-size:10px;color:var(--tx3)">(shares ${fmtSignedUsd(realized.shares)} · options ${fmtSignedUsd(realized.options)})</span></span>` : ""}
       ${eqPnlNote}
     </div>
     <div class="status-col"><span class="badge ${statusClass}">${esc(sg.status)}</span></div></div>`;

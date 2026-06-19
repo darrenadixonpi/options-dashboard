@@ -709,16 +709,23 @@ async function checkSchwabStatus() {
   const { ok, data } = await fetchJson("/api/schwab/status");
   if (!ok || !data) return;
 
-  // Only show the API panel if the backend has credentials configured
-  if (!data.configured) {
-    panel.hidden = true;
-    return;
-  }
+  // The panel is always shown; when no credentials are configured we surface
+  // an in-app setup form (App Key + Secret) instead of hiding the panel.
   panel.hidden = false;
 
   const badge = document.getElementById("schwab-status-badge");
+  const configSection = document.getElementById("schwab-config-section");
   const connectSection = document.getElementById("schwab-connect-section");
   const syncSection = document.getElementById("schwab-sync-section");
+
+  if (!data.configured) {
+    if (badge) { badge.textContent = "Not set up"; badge.style.cssText = "font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--tx3)"; }
+    if (configSection) configSection.hidden = false;
+    if (connectSection) connectSection.hidden = true;
+    if (syncSection) syncSection.hidden = true;
+    return;
+  }
+  if (configSection) configSection.hidden = true;
 
   if (data.authenticated && !data.needs_reauth) {
     const ageStr = data.token_age_hours != null ? ` · token ${data.token_age_hours}h old` : "";
@@ -735,6 +742,36 @@ async function checkSchwabStatus() {
     if (badge) { badge.textContent = "Not connected"; badge.style.cssText = "font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--tx3)"; }
     if (connectSection) connectSection.hidden = false;
     if (syncSection) syncSection.hidden = true;
+  }
+}
+
+async function schwabSaveConfig() {
+  const idEl = document.getElementById("schwab-client-id") as HTMLInputElement | null;
+  const secretEl = document.getElementById("schwab-client-secret") as HTMLInputElement | null;
+  const errEl = document.getElementById("schwab-config-error") as HTMLElement | null;
+  const clientId = idEl?.value?.trim();
+  const clientSecret = secretEl?.value?.trim();
+  if (!clientId || !clientSecret) {
+    if (errEl) { errEl.textContent = "Enter both the App Key and App Secret."; errEl.style.display = "block"; }
+    return;
+  }
+  if (errEl) errEl.style.display = "none";
+  const btn = document.getElementById("btn-schwab-save-config") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  try {
+    const { ok, data } = await fetchJson("/api/schwab/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    });
+    if (!ok || data?.error) {
+      if (errEl) { errEl.textContent = data?.error || "Could not save credentials."; errEl.style.display = "block"; }
+      return;
+    }
+    if (secretEl) secretEl.value = "";
+    await checkSchwabStatus();  // now configured → shows the Connect button
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -833,6 +870,7 @@ async function schwabDisconnect() {
 }
 
 // Wire Schwab panel buttons
+document.getElementById("btn-schwab-save-config")?.addEventListener("click", schwabSaveConfig);
 document.getElementById("btn-schwab-connect")?.addEventListener("click", schwabStartConnect);
 document.getElementById("btn-schwab-submit-callback")?.addEventListener("click", schwabSubmitCallback);
 document.getElementById("btn-schwab-sync")?.addEventListener("click", schwabSync);

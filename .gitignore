@@ -12,6 +12,7 @@ build/
 portfolio.db
 .env
 schwab_token.json
+schwab_config.json
 ibkr_flex.json
 .options-dashboard.lock
 test-results/

@@ -279,3 +279,54 @@ class TestSchwabRoutes:
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert data["ok"] is True
+
+    def test_config_route_saves(self, app_client):
+        with patch("app.get_schwab_client") as mock_get:
+            mock_get.return_value.save_config.return_value = None
+            mock_get.return_value.status.return_value = {"configured": True}
+            resp = app_client.post("/api/schwab/config", json={"client_id": "K", "client_secret": "S"})
+        assert resp.status_code == 200
+        assert json.loads(resp.data)["ok"] is True
+
+    def test_config_route_requires_fields(self, app_client):
+        resp = app_client.post("/api/schwab/config", json={"client_id": "K"})
+        assert resp.status_code == 400
+
+
+# ─── In-app credential persistence ────────────────────────────────────────────
+
+
+class TestSchwabConfigFile:
+    def test_save_and_reload(self, tmp_path):
+        from schwab_client import SchwabClient
+        cfg = str(tmp_path / "schwab_config.json")
+        tok = str(tmp_path / "schwab_token.json")
+        c = SchwabClient("", "", token_path=tok, config_path=cfg)
+        assert c.is_configured() is False
+        c.save_config("KEY", "SECRET")
+        assert c.is_configured() and os.path.exists(cfg)
+        # A fresh client loads the saved credentials from disk.
+        c2 = SchwabClient("", "", token_path=tok, config_path=cfg)
+        assert c2.is_configured() and c2.client_id == "KEY" and c2.client_secret == "SECRET"
+
+    def test_env_wins_over_file(self, tmp_path):
+        from schwab_client import SchwabClient
+        cfg = str(tmp_path / "schwab_config.json")
+        SchwabClient("", "", token_path=str(tmp_path / "t.json"), config_path=cfg).save_config("FILEK", "FILES")
+        c = SchwabClient("ENVK", "ENVS", token_path=str(tmp_path / "t2.json"), config_path=cfg)
+        assert c.client_id == "ENVK"  # explicit (env) credentials take precedence
+
+    def test_save_requires_both(self, tmp_path):
+        from schwab_client import SchwabClient, SchwabAuthError
+        c = SchwabClient("", "", token_path=str(tmp_path / "t.json"), config_path=str(tmp_path / "c.json"))
+        with pytest.raises(SchwabAuthError):
+            c.save_config("only_key", "")
+
+    def test_clear_config(self, tmp_path):
+        from schwab_client import SchwabClient
+        cfg = str(tmp_path / "schwab_config.json")
+        c = SchwabClient("", "", token_path=str(tmp_path / "t.json"), config_path=cfg)
+        c.save_config("K", "S")
+        assert os.path.exists(cfg)
+        c.clear_config()
+        assert not os.path.exists(cfg) and c.is_configured() is False

@@ -720,14 +720,26 @@ def compute_greeks():
                 })
                 continue
 
-            dte = max((pd.Timestamp(p["expiry"]) - today).days, 1)
-            T = dte / 365.0
             opt_type = (p.get("optType") or "put").lower()
             strike = p.get("strike", 0)
             contracts = p.get("contracts", 0)
             multiplier = contracts * 100
+            raw_dte = (pd.Timestamp(p["expiry"]) - today).days
 
-            greeks = bs_greeks(S, strike, RISK_FREE, iv, T, opt_type)
+            if raw_dte <= 0:
+                # Expired / pending settlement: no time value remains, so the
+                # time-decay greeks are zero. (Clamping DTE to 1 day instead would
+                # produce a huge spurious theta — e.g. a near-ATM put showing
+                # ~$150/day of "decay" that is already realized.) Delta is the
+                # intrinsic assignment exposure: ±1 per share if ITM, else 0.
+                if opt_type == "call":
+                    intrinsic_delta = 1.0 if S > strike else 0.0
+                else:
+                    intrinsic_delta = -1.0 if S < strike else 0.0
+                greeks = {"delta": intrinsic_delta, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+            else:
+                T = max(raw_dte, 1) / 365.0
+                greeks = bs_greeks(S, strike, RISK_FREE, iv, T, opt_type)
 
             pg = {
                 "ticker": tkr, "strike": strike,
@@ -1114,11 +1126,6 @@ def simulate():
 
         strat_map = _build_sim_strategy_map(positions)
 
-        tickers_with_adj_equity = set()
-        for p in positions:
-            if p.get("posType") == "equity" and p.get("adjCost"):
-                tickers_with_adj_equity.add(p["ticker"])
-
         for p in positions:
             tkr = p["ticker"]
             if tkr not in ticker_paths:
@@ -1141,10 +1148,10 @@ def simulate():
                     intrinsic = np.maximum(ST - strike, 0.0)
                 else:
                     intrinsic = np.maximum(strike - ST, 0.0)
-                if tkr in tickers_with_adj_equity:
-                    avg_cost = 0
-                else:
-                    avg_cost = p.get("avgCost", 0)
+                # Credit the option's own entry premium (avgCost). Premium is no
+                # longer folded into the equity's adjusted basis, so there is no
+                # double-count to guard against — the short put's premium belongs here.
+                avg_cost = p.get("avgCost", 0)
                 pnl = qty * (intrinsic - avg_cost) * 100
 
             all_pnl += pnl
@@ -1742,6 +1749,18 @@ def _parse_ibkr_raw_txns(lines):
     return trades, equity_txns, warnings
 
 
+def _schwab_symbol_to_occ(sym_raw):
+    """Convert a Schwab option symbol 'TICKER MM/DD/YYYY STRIKE P/C' into an
+    OCC-ish '-tickeryymmddpcstrike' string so _parse_occ_symbol can read it.
+    Returns None if the symbol isn't in Schwab's option format."""
+    m = re.match(r"^([A-Za-z.]+)\s+(\d{2})/(\d{2})/(\d{4})\s+([\d.]+)\s+([PCpc])$", (sym_raw or "").strip())
+    if not m:
+        return None
+    ticker, mm, dd, yyyy, strike, pc = m.groups()
+    strike_str = ("%f" % float(strike)).rstrip("0").rstrip(".")
+    return f"-{ticker.lower()}{yyyy[2:]}{mm}{dd}{pc.lower()}{strike_str}"
+
+
 def _parse_fidelity_schwab_raw_txns(lines):
     """Parse Fidelity Run Date / Schwab Date+Action history into FIFO txn maps."""
     header_idx = -1
@@ -1789,8 +1808,10 @@ def _parse_fidelity_schwab_raw_txns(lines):
         if not ds or not ds[0].isdigit():
             continue
         action = r[action_idx].strip().strip('"').upper()
+        if "JOURNAL" in action or "TRANSFER" in action:
+            continue  # Schwab account transfers / journal entries are not trades
         sym_raw = r[sym_idx].strip().strip('"')
-        sym = sym_raw.lower().replace(" ", "")
+        sym = _schwab_symbol_to_occ(sym_raw) or sym_raw.lower().replace(" ", "")
         price = _parse_hist_money(r[price_idx] if price_idx < len(r) else "0")
         try:
             qty = abs(int(float(r[qty_idx].strip().strip('"').replace(",", ""))))
@@ -1843,6 +1864,31 @@ def _parse_history_raw_txns(hist_text):
         if trades or equity:
             return trades, equity, "ibkr", warnings
     return trades, equity, fmt, []
+
+
+def _merge_history_texts(texts):
+    """Parse each history file by its OWN broker format and merge the trade/equity
+    maps into one journal. Lets multi-broker history (e.g. Fidelity + Schwab) combine
+    correctly: every file gets its own format detection, and cross-broker opens/closes
+    pair because both normalize to the same canonical OCC key (the FIFO matcher sorts
+    each symbol's merged txns by date)."""
+    merged_trades = {}
+    merged_equity = {}
+    fmts = []
+    warnings = []
+    for text in texts or []:
+        if not text or not text.strip():
+            continue
+        trades, equity, fmt, warns = _parse_history_raw_txns(text)
+        for sym, txns in trades.items():
+            merged_trades.setdefault(sym, []).extend(txns)
+        for ticker, txns in equity.items():
+            merged_equity.setdefault(ticker, []).extend(txns)
+        if fmt and fmt != "unknown":
+            fmts.append(fmt)
+        warnings.extend(warns or [])
+    hist_fmt = "+".join(dict.fromkeys(fmts)) if fmts else "unknown"
+    return merged_trades, merged_equity, hist_fmt, warnings
 
 
 def _plain_equity_ticker(sym):
@@ -2690,12 +2736,20 @@ def _compute_mtm_risk_metrics(book_points):
     """Sharpe/Sortino on fetch-to-fetch changes in book unrealized P&L."""
     if not book_points or len(book_points) < 3:
         return None
-    chrono = sorted(book_points, key=lambda x: x["timestamp"])
+
+    def _naive_ts(v):
+        # Snapshots may be stored tz-aware (frontend toISOString → "...Z") or
+        # tz-naive (backend datetime.now().isoformat()); normalize so mixed rows
+        # don't raise "Cannot subtract tz-naive and tz-aware".
+        t = pd.Timestamp(v)
+        return t.tz_convert("UTC").tz_localize(None) if t.tzinfo is not None else t
+
+    chrono = sorted(book_points, key=lambda x: _naive_ts(x["timestamp"]))
     deltas = []
     day_gaps = []
     for i in range(1, len(chrono)):
-        t0 = pd.Timestamp(chrono[i - 1]["timestamp"])
-        t1 = pd.Timestamp(chrono[i]["timestamp"])
+        t0 = _naive_ts(chrono[i - 1]["timestamp"])
+        t1 = _naive_ts(chrono[i]["timestamp"])
         gap = max((t1 - t0).total_seconds() / 86400.0, 1 / 24)
         delta = float(chrono[i]["unrealizedPnl"]) - float(chrono[i - 1]["unrealizedPnl"])
         deltas.append(delta)
@@ -3124,8 +3178,12 @@ def _build_equity_closed_trades(ticker, txns):
 @app.route("/api/trade-history", methods=["POST"])
 def trade_history():
     try:
-        hist_text = request.json.get("historyText", "")
-        trades, equity_txns, hist_fmt, parse_warnings = _parse_history_raw_txns(hist_text)
+        body = request.json or {}
+        hist_texts = body.get("historyTexts")
+        if not hist_texts:
+            single = body.get("historyText", "")
+            hist_texts = [single] if single else []
+        trades, equity_txns, hist_fmt, parse_warnings = _merge_history_texts(hist_texts)
 
         closed_trades = []
         all_open_events = []
@@ -4040,14 +4098,22 @@ def what_if_greeks():
             if not S or not iv or not p.get("expiry"):
                 continue
 
-            dte = max((pd.Timestamp(p["expiry"]) - today).days, 1)
-            T = dte / 365.0
             opt_type = (p.get("optType") or "put").lower()
             strike = p.get("strike", 0)
             contracts = p.get("contracts", 0)
             multiplier = contracts * 100
+            raw_dte = (pd.Timestamp(p["expiry"]) - today).days
 
-            greeks = bs_greeks(S, strike, RISK_FREE, iv, T, opt_type)
+            if raw_dte <= 0:
+                # Expired: no time value → zero time-decay greeks; delta = intrinsic.
+                if opt_type == "call":
+                    intrinsic_delta = 1.0 if S > strike else 0.0
+                else:
+                    intrinsic_delta = -1.0 if S < strike else 0.0
+                greeks = {"delta": intrinsic_delta, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+            else:
+                T = max(raw_dte, 1) / 365.0
+                greeks = bs_greeks(S, strike, RISK_FREE, iv, T, opt_type)
             agg = ticker_greeks.setdefault(tkr, {"delta": 0, "gamma": 0, "theta": 0, "vega": 0})
             agg["delta"] += round(greeks["delta"] * multiplier, 2)
             agg["gamma"] += round(greeks["gamma"] * multiplier, 4)
@@ -4419,6 +4485,27 @@ def schwab_disconnect():
     try:
         get_schwab_client().disconnect()
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/schwab/config", methods=["POST"])
+def schwab_config():
+    """Save the Schwab App Key + Secret to the local config file (no .env editing).
+
+    Body: { "client_id": "...", "client_secret": "...", "callback_url"?: "..." }
+    """
+    try:
+        body = request.json or {}
+        client_id = (body.get("client_id") or "").strip()
+        client_secret = (body.get("client_secret") or "").strip()
+        callback_url = (body.get("callback_url") or "").strip() or None
+        if not client_id or not client_secret:
+            return jsonify({"error": "Both 'client_id' and 'client_secret' are required"}), 400
+        get_schwab_client().save_config(client_id, client_secret, callback_url)
+        return jsonify({"ok": True, "status": get_schwab_client().status()})
+    except SchwabAuthError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

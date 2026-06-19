@@ -437,13 +437,17 @@ class TestDeskAlerts:
 
 class TestGreeksApi:
     def test_greeks_short_put(self, client):
+        from datetime import datetime, timedelta
+        # Date-relative expiry: a hardcoded near-term date decays to ~0 delta and
+        # makes this test rot. 45 DTE keeps the OTM put's delta meaningfully non-zero.
+        expiry = (datetime.now() + timedelta(days=45)).strftime("%Y-%m-%d")
         payload = {
             "positions": [{
                 "ticker": "TEST",
                 "posType": "option",
                 "optType": "Put",
                 "strike": 10,
-                "expiry": "2026-06-20",
+                "expiry": expiry,
                 "contracts": -2,
             }],
             "marketData": {

@@ -111,14 +111,18 @@ def compute_tax_lots(
         close_price = float(trade.get("close_price") or 0)
         key = _lot_key(trade)
 
+        # Only actual options carry the 100x contract multiplier. Anything else
+        # (equity, "Stock", blank) is shares and must use multiplier 1 — otherwise
+        # every share trade's proceeds/cost/gain is inflated 100x.
+        is_option = bool(opt_type) and opt_type.lower() in ("call", "put", "c", "p")
+
         # Build description
-        if opt_type and opt_type.lower() != "equity":
+        if is_option:
             desc = f"{ticker} {opt_type} ${strike} {trade.get('close_date', '')[:10]}"
         else:
             desc = ticker
 
-        # For options: multiply by 100 (1 contract = 100 shares)
-        multiplier = 100 if opt_type and opt_type.lower() != "equity" else 1
+        multiplier = 100 if is_option else 1
 
         is_close = close_d is not None
 

@@ -107,6 +107,19 @@ def parse_option_from_schwab(sym: str, desc: str = "") -> dict[str, Any] | None:
     p = parse_occ((sym or "").replace(" ", ""))
     if p:
         return p
+    # Schwab native symbol: "TICKER MM/DD/YYYY STRIKE P/C" (e.g. "OVID 06/18/2026 2.50 P")
+    sm = re.match(r"^([A-Za-z.]+)\s+(\d{2})/(\d{2})/(\d{4})\s+([\d.]+)\s+([PCpc])$", (sym or "").strip())
+    if sm:
+        s_ticker, s_mm, s_dd, s_yyyy, s_strike, s_pc = sm.groups()
+        try:
+            return {
+                "ticker": s_ticker.upper(),
+                "expiry": datetime(int(s_yyyy), int(s_mm), int(s_dd)),
+                "optType": "Put" if s_pc.lower() == "p" else "Call",
+                "strike": float(s_strike),
+            }
+        except ValueError:
+            return None
     m = re.search(
         r"(PUT|CALL|P|C)\s+([A-Z]+)\s+(\d{2})/(\d{2})/(\d{4})\s+([\d.]+)",
         desc or "",

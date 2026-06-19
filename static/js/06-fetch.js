@@ -33,10 +33,12 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
     const parsed = parsePositions(state.posText);
     const {positions: rawPositions, format} = parsed;
     state.format = format;
-    state.fills = state.histText ? parseHistory(state.histText) : [];
+    // Parse each history file by its OWN broker format (don't use the merged blob —
+    // a single detectHistoryFormat would pick one format and drop the other broker's rows).
+    state.fills = (state.rawHistTexts || []).flatMap(t => parseHistory(t));
 
-    log.textContent = state.histText ? "Filtering closed positions..." : "Skipping history (positions-only mode)...";
-    const filteredPositions = filterClosedPositions(rawPositions, state.histText);
+    log.textContent = state.rawHistTexts?.length ? "Filtering closed positions..." : "Skipping history (positions-only mode)...";
+    const filteredPositions = filterClosedPositions(rawPositions, state.rawHistTexts || []);
     const filtered = rawPositions.length - filteredPositions.length;
 
     log.textContent = "Reconstructing share positions...";
@@ -126,12 +128,12 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
     } catch(e) { console.error("Events error:", e); }
 
     // Analyze trade history (#12)
-    if (state.histText) {
+    if (state.rawHistTexts?.length) {
       log.textContent = "Analyzing trade history...";
       try {
         const histRes = await fetch("/api/trade-history", {
           method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({historyText: state.histText})
+          body: JSON.stringify({historyTexts: state.rawHistTexts})
         });
         state.tradeHistory = await histRes.json();
         renderTradeHistory(state.tradeHistory);

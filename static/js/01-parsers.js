@@ -10,7 +10,12 @@ function parseOCC(sym) {
   const m = sym.trim().replace(/^[\s-]+/, "").match(OCC_RE);
   if (!m) return null;
   const ds = m[2];
-  return { ticker: m[1].toUpperCase(), expiry: new Date(2000+parseInt(ds.slice(0,2)), parseInt(ds.slice(2,4))-1, parseInt(ds.slice(4,6))), optType: m[3].toUpperCase()==="P"?"Put":"Call", strike: parseFloat(m[4]) };
+  const raw = m[4];
+  let strike;
+  if (raw.includes(".")) strike = parseFloat(raw);            // literal decimal strike (broker CSV)
+  else if (raw.length > 6) strike = parseFloat(raw) / 1000;   // standard padded 8-digit OCC strike
+  else strike = parseFloat(raw);
+  return { ticker: m[1].toUpperCase(), expiry: new Date(2000+parseInt(ds.slice(0,2)), parseInt(ds.slice(2,4))-1, parseInt(ds.slice(4,6))), optType: m[3].toUpperCase()==="P"?"Put":"Call", strike: strike };
 }
 
 function findCsvHeaderRow(lines, required) {
@@ -35,6 +40,16 @@ function parseOptionFromSchwab(sym, desc) {
   const normSym = (sym || "").replace(/\s+/g, "");
   let p = parseOCC(normSym);
   if (p) return p;
+  // Schwab native symbol format: "TICKER MM/DD/YYYY STRIKE P/C" (e.g. "OVID 06/18/2026 2.50 P")
+  const sm = (sym || "").trim().match(/^([A-Za-z.]+)\s+(\d{2})\/(\d{2})\/(\d{4})\s+([\d.]+)\s+([PC])$/i);
+  if (sm) {
+    return {
+      ticker: sm[1].toUpperCase(),
+      expiry: new Date(parseInt(sm[4]), parseInt(sm[2]) - 1, parseInt(sm[3])),
+      optType: sm[6].toUpperCase() === "P" ? "Put" : "Call",
+      strike: parseFloat(sm[5]),
+    };
+  }
   const m = (desc || "").match(/(PUT|CALL|P|C)\s+([A-Z]+)\s+(\d{2})\/(\d{2})\/(\d{4})\s+([\d.]+)/i);
   if (m) {
     const ot = /^p/i.test(m[1]) ? "Put" : "Call";
@@ -325,16 +340,7 @@ function parseSchwabHistory(text) {
     const sym=(r[2]||"").trim();
     const desc=(r[3]||"").trim();
     // Schwab uses space-padded OCC: "CCCC  260515P00003000" → normalize
-    const normSym = sym.replace(/\s+/g,"").replace(/^0+(\d)/,"$1");
-    let p = parseOCC(normSym);
-    if(!p){
-      // Try extracting from description: "PUT CCCC 05/15/2026 3.0 (100 SHS)"
-      const m = desc.match(/(PUT|CALL)\s+([A-Z]+)\s+(\d{2})\/(\d{2})\/(\d{4})\s+([\d.]+)/i);
-      if(m){
-        const ot=m[1].toUpperCase()==="PUT"?"Put":"Call";
-        p={ticker:m[2],expiry:new Date(parseInt(m[5]),parseInt(m[3])-1,parseInt(m[4])),optType:ot,strike:parseFloat(m[6])};
-      }
-    }
+    let p = parseOptionFromSchwab(sym, desc);
     if(!p)continue;
     const dp=ds.split("/");
     const price=parseFloat((r[5]||"").replace(/[$,]/g,""))||0;
@@ -400,6 +406,17 @@ function formatParseHint(format, broker) {
   return (hints[format] || hints.unknown) + b;
 }
 
+function occKeyFromOption(p) {
+  // Canonical key matching filterClosedPositions: -tickeryymmdd{p|c}strike
+  const exp = p.expiry;
+  const yy = String(exp.getFullYear()).slice(2).padStart(2, "0");
+  const mm = String(exp.getMonth() + 1).padStart(2, "0");
+  const dd = String(exp.getDate()).padStart(2, "0");
+  const pc = p.optType === "Put" ? "p" : "c";
+  const strike = String(p.strike); // minimal form (130→"130", 2.5→"2.5"); matches broker OCC symbols
+  return `-${p.ticker.toLowerCase()}${yy}${mm}${dd}${pc}${strike}`;
+}
+
 function buildHistoryNetQty(histText) {
   const netQty = {};
   if (!histText?.trim()) return netQty;
@@ -413,11 +430,13 @@ function buildHistoryNetQty(histText) {
       const ds = r[0]?.trim();
       if (!ds || !/^\d/.test(ds)) continue;
       const action = (r[1] || "").trim().toLowerCase();
-      const sym = (r[2] || "").trim().toLowerCase().replace(/\s+/g, "");
+      const p = parseOptionFromSchwab((r[2] || "").trim(), (r[3] || "").trim());
+      if (!p) continue; // only options matter for the closed-position filter
+      const key = occKeyFromOption(p);
       const qty = Math.abs(parseInt(parseFloat(r[4] || "0"))) || 0;
-      if (!sym || !qty) continue;
-      if (action.includes("to open")) netQty[sym] = (netQty[sym] || 0) + qty;
-      else if (action.includes("to close") || action.includes("expired") || action.includes("assigned")) netQty[sym] = (netQty[sym] || 0) - qty;
+      if (!key || !qty) continue;
+      if (action.includes("to open")) netQty[key] = (netQty[key] || 0) + qty;
+      else if (action.includes("to close") || action.includes("expired") || action.includes("assigned")) netQty[key] = (netQty[key] || 0) - qty;
     }
     return netQty;
   }
@@ -468,14 +487,32 @@ function filterClosedPositions(positions, histText) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // A short/long option is a live exposure until the broker actually settles it
+  // (assignment or OTM expiration), which posts a few days after expiry — typically
+  // over the weekend following a Friday expiry. So we DON'T drop options the moment
+  // they pass their expiry date; the transaction-history filter below removes them
+  // once Schwab reports the close/assignment/expiration. This grace is only a cleanup
+  // floor for very old options imported without a confirming history.
+  const SETTLE_GRACE_DAYS = 7;
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - SETTLE_GRACE_DAYS);
+
   const unexpired = positions.filter(pos => {
     if (pos.posType === "equity" || !pos.expiry) return true;
-    return pos.expiry >= today;
+    return pos.expiry >= cutoff;
   });
 
-  if (!histText || !histText.trim()) return unexpired;
+  // `histText` may be an array of per-broker history files (preferred) or a single
+  // string. Each file is parsed by its own format, then net qty is merged across them
+  // so a contract opened at one broker and closed at another resolves correctly.
+  const texts = Array.isArray(histText) ? histText : (histText ? [histText] : []);
+  if (!texts.some(t => t && t.trim())) return unexpired;
 
-  const netQty = buildHistoryNetQty(histText);
+  const netQty = {};
+  for (const t of texts) {
+    const nq = buildHistoryNetQty(t);
+    for (const k in nq) netQty[k] = (netQty[k] || 0) + nq[k];
+  }
 
   return unexpired.filter(pos => {
     if (pos.posType === "equity" || !pos.expiry || !pos.optType) return true;
@@ -484,7 +521,7 @@ function filterClosedPositions(positions, histText) {
     const mm = String(exp.getMonth() + 1).padStart(2, "0");
     const dd = String(exp.getDate()).padStart(2, "0");
     const pc = pos.optType === "Put" ? "p" : "c";
-    const strike = String(pos.strike).replace(/\.?0+$/, "");
+    const strike = String(pos.strike); // minimal form; matches both Fidelity OCC and Schwab→OCC keys
     const occKey = `-${pos.ticker.toLowerCase()}${yy}${mm}${dd}${pc}${strike}`;
 
     const net = netQty[occKey];

@@ -65,6 +65,8 @@ SCHWAB_TOKEN_PATH=./schwab_token.json
 
 Do **not** paste secrets in chat, issues, or git.
 
+**In-app alternative (no `.env` editing):** instead of the steps above, open the import drawer → **Schwab** and paste the **App Key** + **App Secret** into the setup form, then click Save. They're stored locally in `schwab_config.json` (gitignored) and picked up immediately — no restart needed. Environment variables, if set, take precedence over the file. See [BROKER_TESTING.md](BROKER_TESTING.md).
+
 ---
 
 ## Part 2 — OAuth behavior (what to expect)

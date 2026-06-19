@@ -59,13 +59,16 @@ class SchwabClient:
         client_secret: str,
         callback_url: str = "https://127.0.0.1:8182",
         token_path: str = "./schwab_token.json",
+        config_path: str = "./schwab_config.json",
     ) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.callback_url = callback_url
         self.token_path = token_path
+        self.config_path = config_path
         self._tokens: dict[str, Any] = {}
         self._load_tokens()
+        self._load_config()
 
     # ─── Factory ─────────────────────────────────────────────────────────────
 
@@ -77,7 +80,60 @@ class SchwabClient:
             client_secret=os.environ.get("SCHWAB_CLIENT_SECRET", ""),
             callback_url=os.environ.get("SCHWAB_CALLBACK_URL", "https://127.0.0.1:8182"),
             token_path=os.environ.get("SCHWAB_TOKEN_PATH", "./schwab_token.json"),
+            config_path=os.environ.get("SCHWAB_CONFIG_PATH", "./schwab_config.json"),
         )
+
+    # ─── Credential persistence (in-app config, no .env editing) ──────────────
+
+    def _load_config(self) -> None:
+        """Fill missing App Key / Secret from the local config file (env wins)."""
+        if self.client_id and self.client_secret:
+            return
+        try:
+            with open(self.config_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.client_id = self.client_id or (cfg.get("client_id") or "").strip()
+            self.client_secret = self.client_secret or (cfg.get("client_secret") or "").strip()
+            if cfg.get("callback_url"):
+                self.callback_url = cfg["callback_url"]
+        except FileNotFoundError:
+            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[schwab] config load warning: {exc}", file=sys.stderr)
+
+    def save_config(self, client_id: str, client_secret: str, callback_url: str | None = None) -> None:
+        """Persist the Schwab App Key + Secret (+ optional callback) to the local file."""
+        client_id = (client_id or "").strip()
+        client_secret = (client_secret or "").strip()
+        if not client_id or not client_secret:
+            raise SchwabAuthError("Both App Key and App Secret are required")
+        self.client_id = client_id
+        self.client_secret = client_secret
+        if callback_url:
+            self.callback_url = callback_url.strip()
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
+                        "callback_url": self.callback_url,
+                    },
+                    f,
+                    indent=2,
+                )
+        except Exception as exc:
+            raise SchwabAuthError(f"Could not save Schwab config: {exc}")
+
+    def clear_config(self) -> None:
+        """Forget saved credentials (deletes the config file). Token is left to disconnect()."""
+        self.client_id = ""
+        self.client_secret = ""
+        try:
+            if os.path.exists(self.config_path):
+                os.remove(self.config_path)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[schwab] config clear warning: {exc}", file=sys.stderr)
 
     # ─── Configuration & auth state ──────────────────────────────────────────
 

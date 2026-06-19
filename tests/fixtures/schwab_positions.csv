@@ -1,4 +1,4 @@
 Symbol,Quantity,Description,Price,Market Value,Cost Basis
-TEST 06/20/2026 10.00 P,-1,PUT TEST 06/20/2026 10.0,0.55,-55.00,-125.00
+TEST 06/20/2026 10.00 P,-1,PUT TEST INC $10 EXP 06/20/26,0.55,-55.00,-125.00
 AAPL,100,APPLE INC,190.00,19000.00,14500.00
 Cash & Cash Investments,--,,,,

@@ -44,16 +44,18 @@ At [developer.schwab.com/dashboard/apps](https://developer.schwab.com/dashboard/
 - Wait until status is **Ready for Use** (not "Approved – Pending"). Re-approval after changes takes ~1–3 business days.
 - Copy the **App Key** and **App Secret**.
 
-### Step 2 — Add credentials to `.env`
+### Step 2 — Add your App Key + Secret
+**Easiest (in-app, no `.env`):** open the import drawer → **Schwab** tab → paste the **App Key** + **App Secret** into the setup form → **Save**. Stored locally in `schwab_config.json` (gitignored); picked up immediately, no restart.
+
+**Or via `.env`** (then restart the server):
 ```env
 SCHWAB_CLIENT_ID=your_app_key
 SCHWAB_CLIENT_SECRET=your_app_secret
 SCHWAB_CALLBACK_URL=https://127.0.0.1:8182
 ```
-Restart the server so it picks up `.env`.
 
 ### Step 3 — Connect in the UI
-1. Open the import drawer → click the **Schwab** broker tab. The **Schwab API** panel appears with a "Not connected" badge.
+1. With credentials saved, the **Schwab API** panel shows a "Not connected" badge and a **Connect Schwab Account** button.
 2. Click **Connect Schwab Account** → a Schwab login link appears and opens in a new tab.
 3. Log in and approve. Schwab redirects to `https://127.0.0.1:8182?code=…` — **the page may show a browser error; that's normal.**
 4. Copy the **full URL** from the address bar, paste it into the panel, click **Submit**.
@@ -69,7 +71,7 @@ Restart the server so it picks up `.env`.
 ### Troubleshooting
 | Symptom | Fix |
 |--------|-----|
-| Panel doesn't appear | `SCHWAB_CLIENT_ID` not in `.env`, or server not restarted |
+| Panel shows the setup form, not Connect | Credentials not saved yet — paste App Key + Secret and click Save (or set them in `.env`) |
 | "security error" at login | Callback URL mismatch — must be exactly `https://127.0.0.1:8182` |
 | Sync returns 401 / "needs reauth" | Refresh token expired (7-day limit) — reconnect |
 | Connect button error about auth URL | `SCHWAB_CLIENT_ID`/`SCHWAB_CLIENT_SECRET` missing or wrong |
