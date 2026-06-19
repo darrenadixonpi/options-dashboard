@@ -43,11 +43,11 @@ Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 comp
 
 | Item | Status |
 |------|--------|
-| Convert remaining JS modules to TypeScript | ✅ **Done** — all 16 runtime modules are TypeScript; `state` annotated `AppState` in `04-state.ts`; `npm run typecheck:pilot` green across the whole frontend |
-| Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:pilot`) |
-| Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
-| Full ES modules / drop global script concat | ⏳ Backlog |
-| All runtime modules typechecked under one `tsconfig` | ✅ Done — 16 modules under `tsconfig.pilot.json` |
+| Convert remaining JS modules to TypeScript | ✅ **Done** — all 16 runtime modules are TypeScript; `state` annotated `AppState` in `04-state.ts`; `npm run typecheck:frontend` green across the whole frontend |
+| Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:frontend`) |
+| Run `typecheck:frontend` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
+| Full ES modules / drop global script concat | ✅ **Done** — every module uses `import`/`export`; esbuild bundles `_bundle-entry.ts` (modules imported in `MODULE_ORDER`) into one IIFE; `index.html` loads the single bundle; the 16 inline-handler entry points are re-exposed on `window` for compat |
+| All runtime modules typechecked under one `tsconfig` | ✅ Done — 16 modules under `tsconfig.frontend.json` |
 
 Target: **v1.2+** alongside or after Schwab API (see Next up).
 
@@ -59,7 +59,7 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 |------|--------|
 | **Phase 1** | Pydantic API schemas, pip-audit CI, vendored Chart.js, Playwright E2E |
 | **Phase 2** | Shared `types.ts`, `npm run typecheck` |
-| **Phase 3 pilot** | `05-session-api.ts`, `08-simulate.ts`, esbuild TS → JS, `typecheck:pilot` |
+| **Phase 3 pilot** | `05-session-api.ts`, `08-simulate.ts`, esbuild TS → JS, `typecheck:frontend` |
 | **Sim UX** | Sticky summary bar, left ticker nav, combined P(profit) by book, histogram range pan/zoom |
 | **Charts** | Crosshair tooltips, fan-chart label layout, export-all fix |
 | **Journal** | Assignment rollup stays on Journal tab |
@@ -129,7 +129,6 @@ Driven by validating real Fidelity + Schwab exports. Full detail in [CHANGELOG.m
 - FIFO lot-level journal UI (fill dates per lot)
 - Close-event badge polish (BTC/STC/expired/assigned)
 - Roll-aware P&L in attribution
-- Full ES modules / drop global script concat
 - Schwab Market Data product (broker quotes instead of Yahoo)
 - Auth / multi-user hosting (out of scope for local desk)
 - FIFO lot-level **8949 split for assignments** (currently one premium-adjusted Stock line per assignment; per-lot date detail is a future refinement)

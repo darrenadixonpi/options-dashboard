@@ -96,11 +96,9 @@ function writeManifest() {
   return manifest;
 }
 
-function renderScriptBlock(mode) {
-  if (mode === "bundle") {
-    return `<script src="/static/dist/app.bundle.js"></script>`;
-  }
-  return MODULE_ORDER.map((file) => `<script src="/static/js/${file}"></script>`).join("\n");
+function renderScriptBlock() {
+  // ES-module bundle only — individual classic-script tags can't carry import/export.
+  return `<script src="/static/dist/app.bundle.js"></script>`;
 }
 
 function syncIndexHtml(mode = "bundle") {
@@ -120,14 +118,13 @@ function syncIndexHtml(mode = "bundle") {
 }
 
 async function buildOnce() {
-  await emitDevScripts();
-  const contents = await concatSources();
   fs.mkdirSync(outDir, { recursive: true });
+  const entry = path.join(jsDir, "_bundle-entry.ts");
 
   await esbuild.build({
-    stdin: { contents, loader: "js", sourcefile: "app-entry.js" },
+    entryPoints: [entry],
     outfile: outFile,
-    bundle: false,
+    bundle: true,
     format: "iife",
     target: ["es2020"],
     minify: !dev,
@@ -137,13 +134,8 @@ async function buildOnce() {
 
   const manifest = writeManifest();
   const kb = (manifest.bytes / 1024).toFixed(1);
-  const tsNote = manifest.tsModules.length ? `, ${manifest.tsModules.length} TS module(s)` : "";
-  console.log(`Wrote ${path.relative(root, outFile)} (${kb} KB, hash ${manifest.hash}${tsNote})`);
-  if (syncIndex) syncIndexHtml("bundle");
-  else {
-    console.log("Dev index unchanged. For bundled index: npm run index:bundle");
-    console.log("Or set USE_JS_BUNDLE=1 when starting Flask (no index edit needed).");
-  }
+  console.log(`Wrote ${path.relative(root, outFile)} (${kb} KB, hash ${manifest.hash}) — ES-module bundle of ${MODULE_ORDER.length} modules`);
+  syncIndexHtml("bundle");
 }
 
 async function watchBuild() {
@@ -189,7 +181,7 @@ async function watchBuild() {
 }
 
 if (args.has("--sync-index-only")) {
-  syncIndexHtml(args.has("--modules") ? "modules" : "bundle");
+  syncIndexHtml("bundle");
 } else if (watch) {
   await watchBuild();
 } else {

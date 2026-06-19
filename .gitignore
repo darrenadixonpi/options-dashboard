@@ -29,3 +29,7 @@ static/js/01-parsers.js
 static/js/02-portfolio.js
 static/js/03-render.js
 static/js/04-state.js
+
+# Runtime / test artifacts
+.options-dashboard.lock
+test-results/

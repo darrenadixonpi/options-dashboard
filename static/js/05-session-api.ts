@@ -1,13 +1,22 @@
+import { buildPortfolio, dateKey } from "./02-portfolio";
+import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
+import { renderPortfolio } from "./03-render";
+import { DEFAULT_ALERT_THRESHOLDS, SESSION_KEY, chartInstances, destroyChart, persistAttributionSnapshot, refreshDeskAlerts, renderPositionsRail, state } from "./04-state";
+import { enableSimButton, fmtDollar, renderSimResults, runSimulation } from "./08-simulate";
+import { enableRiskTab, renderRiskExpiryCheckpoints } from "./09-risk";
+import { renderTradeHistory } from "./10-journal";
+let autoRefreshTimer: any = null;
+
 /// <reference path="./types.ts" />
 
-function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
+export function rehydratePositions(positions: PositionRow[] | null | undefined): PositionRow[] {
   return (positions || []).map(p => ({
     ...p,
     expiry: p.expiry ? new Date(p.expiry) : null,
   }));
 }
 
-function rehydratePortfolio(portfolio) {
+export function rehydratePortfolio(portfolio) {
   if (!portfolio?.groups) return portfolio;
   return {
     ...portfolio,
@@ -25,7 +34,7 @@ function rehydratePortfolio(portfolio) {
   };
 }
 
-async function fetchJson(url: string, options?: RequestInit): Promise<FetchJsonResult> {
+export async function fetchJson(url: string, options?: RequestInit): Promise<FetchJsonResult> {
   const res = await fetch(url, options);
   const text = await res.text();
   try {
@@ -36,14 +45,14 @@ async function fetchJson(url: string, options?: RequestInit): Promise<FetchJsonR
   }
 }
 
-function openImportDrawer() {
+export function openImportDrawer() {
   document.getElementById("import-drawer").hidden = false;
 }
-function closeImportDrawer() {
+export function closeImportDrawer() {
   document.getElementById("import-drawer").hidden = true;
 }
 
-function positionPayload(p) {
+export function positionPayload(p) {
   return {
     ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry instanceof Date ? p.expiry : new Date(p.expiry)) : null,
     strike: p.strike, optType: p.optType, contracts: p.contracts,
@@ -52,11 +61,11 @@ function positionPayload(p) {
   };
 }
 
-function getMergedPositions() {
+export function getMergedPositions() {
   return [...state.positions.map(positionPayload), ...(state.hypothetical || []).map(positionPayload)];
 }
 
-function buildMarketSnapshot(marketData: Record<string, any> | null, greeks: any) {
+export function buildMarketSnapshot(marketData: Record<string, any> | null, greeks: any) {
   const prices = {}, ivs = {}, greekMap = {};
   if (marketData) {
     for (const [tkr, md] of Object.entries(marketData)) {
@@ -70,7 +79,7 @@ function buildMarketSnapshot(marketData: Record<string, any> | null, greeks: any
   return { prices, ivs, greeks: greekMap, at: new Date().toISOString() };
 }
 
-async function fetchPnlAttribution(prevSnap) {
+export async function fetchPnlAttribution(prevSnap) {
   if (!prevSnap || !state.marketData) return;
   const current = buildMarketSnapshot(state.marketData, null);
   const { ok, data } = await fetchJson("/api/pnl-attribution", {
@@ -88,7 +97,7 @@ async function fetchPnlAttribution(prevSnap) {
   }
 }
 
-function renderAttribution(data, prevAt) {
+export function renderAttribution(data, prevAt) {
   const sec = document.getElementById("attribution-section");
   if (!data?.portfolio || !sec) return;
   sec.hidden = false;
@@ -122,7 +131,7 @@ function renderAttribution(data, prevAt) {
     : "";
 }
 
-async function refreshOptionMarks() {
+export async function refreshOptionMarks() {
   if (!state.positions.length) return;
   const btn = document.getElementById("btn-refresh-marks") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
@@ -149,7 +158,7 @@ async function refreshOptionMarks() {
   }
 }
 
-async function fetchGreeksLight() {
+export async function fetchGreeksLight() {
   if (!state.positions.length || !state.marketData) return false;
   try {
     const { ok, data } = await fetchJson("/api/greeks", {
@@ -171,7 +180,7 @@ async function fetchGreeksLight() {
 }
 
 /** Lightweight desk refresh: spot + IV + marks + greeks — no attribution snapshots or full fetch log. */
-async function refreshLiveDesk() {
+export async function refreshLiveDesk() {
   if (!state.positions.length || !state.marketData || document.hidden) return;
   const tickers = [...new Set(state.positions.map(p => p.ticker))].sort();
   try {
@@ -206,18 +215,18 @@ async function refreshLiveDesk() {
   } catch (e) { console.warn("Auto-refresh failed:", e); }
 }
 
-function stopAutoRefresh() {
+export function stopAutoRefresh() {
   if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
 }
 
-function startAutoRefresh() {
+export function startAutoRefresh() {
   stopAutoRefresh();
   if (!state.autoRefresh?.enabled) return;
   const ms = (state.autoRefresh.intervalMin || 10) * 60 * 1000;
   autoRefreshTimer = setInterval(() => refreshLiveDesk(), ms);
 }
 
-function syncAutoRefreshUI() {
+export function syncAutoRefreshUI() {
   const cb = document.getElementById("auto-refresh-marks") as HTMLInputElement | null;
   const sel = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
   if (cb) cb.checked = !!state.autoRefresh?.enabled;
@@ -225,7 +234,7 @@ function syncAutoRefreshUI() {
   startAutoRefresh();
 }
 
-function setupAutoRefreshControls() {
+export function setupAutoRefreshControls() {
   const cb = document.getElementById("auto-refresh-marks") as HTMLInputElement | null;
   const sel = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
   if (!cb || cb.dataset.wired) return;
@@ -249,7 +258,7 @@ function setupAutoRefreshControls() {
   syncAutoRefreshUI();
 }
 
-function updateMarksStaleLabel() {
+export function updateMarksStaleLabel() {
   const el = document.getElementById("marks-stale-label");
   const toolbar = document.getElementById("marks-toolbar");
   if (!el || !toolbar) return;
@@ -260,14 +269,14 @@ function updateMarksStaleLabel() {
   el.style.color = ageMin > 15 ? "var(--warn-tx)" : "var(--tx3)";
 }
 
-function populateWhatIfTickers() {
+export function populateWhatIfTickers() {
   const dl = document.getElementById("wi-ticker-list");
   if (!dl) return;
   const tickers = [...new Set(state.positions.map(p => p.ticker))].sort();
   dl.innerHTML = tickers.map(t => `<option value="${t}">`).join("");
 }
 
-async function loadWhatIfExpiries(ticker) {
+export async function loadWhatIfExpiries(ticker) {
   const sel = document.getElementById("wi-expiry");
   const strikeSel = document.getElementById("wi-strike");
   if (!sel) return;
@@ -285,7 +294,7 @@ async function loadWhatIfExpiries(ticker) {
   }
 }
 
-async function loadWhatIfStrikes(ticker, expiry, optType) {
+export async function loadWhatIfStrikes(ticker, expiry, optType) {
   const strikeSel = document.getElementById("wi-strike");
   if (!strikeSel || !ticker || !expiry) return;
   strikeSel.innerHTML = '<option value="">Loading…</option>';
@@ -302,7 +311,7 @@ async function loadWhatIfStrikes(ticker, expiry, optType) {
   }
 }
 
-function applyWhatIfStrikeMid() {
+export function applyWhatIfStrikeMid() {
   const strikeSel = document.getElementById("wi-strike") as HTMLSelectElement | null;
   const costIn = document.getElementById("wi-cost") as HTMLInputElement | null;
   if (!strikeSel || !costIn) return;
@@ -314,7 +323,7 @@ function applyWhatIfStrikeMid() {
   }
 }
 
-function beginEditWhatIfLeg(i) {
+export function beginEditWhatIfLeg(i) {
   const h = state.hypothetical[i];
   if (!h) return;
   state.whatifEditIndex = i;
@@ -333,7 +342,7 @@ function beginEditWhatIfLeg(i) {
   renderWhatIfList();
 }
 
-function cancelWhatIfEdit() {
+export function cancelWhatIfEdit() {
   state.whatifEditIndex = null;
   document.getElementById("btn-whatif-add").textContent = "Add leg";
   (document.getElementById("btn-whatif-cancel-edit") as HTMLElement).hidden = true;
@@ -347,7 +356,7 @@ function cancelWhatIfEdit() {
   renderWhatIfList();
 }
 
-function renderWhatIfList() {
+export function renderWhatIfList() {
   const list = document.getElementById("whatif-list");
   if (!list) return;
   if (!state.hypothetical.length) {
@@ -380,7 +389,7 @@ function renderWhatIfList() {
   if (typeof renderRiskExpiryCheckpoints === "function") renderRiskExpiryCheckpoints();
 }
 
-async function applyWhatIfGreeks() {
+export async function applyWhatIfGreeks() {
   if (!state.marketData) return;
   const el = document.getElementById("whatif-greeks-summary");
   if (!state.hypothetical.length) { el.hidden = true; return; }
@@ -402,7 +411,7 @@ async function applyWhatIfGreeks() {
     <div class="stat" style="border-left:3px solid #a5d6a7"><div class="stat-label">What-if V</div><div class="stat-val" style="font-size:16px;color:#a5d6a7">$${g.vega.toFixed(0)}</div></div>`;
 }
 
-function updateFetchButtonState() {
+export function updateFetchButtonState() {
   const btn = document.getElementById("btn-fetch") as HTMLButtonElement | null;
   if (!btn) return;
   const canFetch = !!(state.rawPosTexts && state.rawPosTexts.length);
@@ -416,7 +425,7 @@ function updateFetchButtonState() {
   }
 }
 
-function setFetchButtonLoading(loading) {
+export function setFetchButtonLoading(loading) {
   const btn = document.getElementById("btn-fetch");
   if (!btn) return;
   btn.classList.toggle("fetch-busy", !!loading);
@@ -429,7 +438,7 @@ function setFetchButtonLoading(loading) {
   }
 }
 
-function saveSession() {
+export function saveSession() {
   const brokerBtn = document.querySelector(".broker-btn.active") as HTMLElement | null;
   let simForSave = state.simResult;
   if (simForSave?.portfolio_pnl) {
@@ -480,7 +489,7 @@ function saveSession() {
   }
 }
 
-function restoreSession() {
+export function restoreSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return;
@@ -570,7 +579,7 @@ function restoreSession() {
   } catch (e) { console.warn("Session restore failed:", e); }
 }
 
-function updateProvenanceBar() {
+export function updateProvenanceBar() {
   const el = document.getElementById("provenance-bar");
   if (!el) return;
   if (!state.marketData || !state.fetchedAt) { el.hidden = true; return; }
@@ -591,7 +600,7 @@ function updateProvenanceBar() {
   el.innerHTML = `<strong>As-of</strong> ${when} · <strong>Greeks</strong> Black-Scholes, r=4.3%, per-position IV · <strong>${ivNote}</strong> · <strong>${marksNote}</strong>${simNote} · <strong>${histNote}</strong> · Risk matrix = theoretical BS vs entry cost, not broker MTM`;
 }
 
-function optionMarkKey(ticker, expiry, optType, strike) {
+export function optionMarkKey(ticker, expiry, optType, strike) {
   const exp = typeof expiry === "string" ? expiry.split("T")[0] : dateKey(expiry instanceof Date ? expiry : new Date(expiry));
   const ot = (optType || "Put").toLowerCase().startsWith("p") ? "P" : "C";
   return `${ticker.toUpperCase()}|${exp}|${ot}|${parseFloat(strike)}`;
@@ -623,7 +632,7 @@ document.querySelectorAll(".view-btn").forEach(btn => {
 });
 
 // File drop zones
-function setupDropZone(id, stateKey) {
+export function setupDropZone(id, stateKey) {
   const dz = document.getElementById(id);
   const inp = dz.querySelector("input");
   dz.addEventListener("click", () => inp.click());
@@ -633,7 +642,7 @@ function setupDropZone(id, stateKey) {
   inp.addEventListener("change", () => { if (inp.files.length) loadFiles(inp.files, dz, stateKey); });
 }
 
-function loadFiles(fileList, dz, stateKey) {
+export function loadFiles(fileList, dz, stateKey) {
   const files = [...fileList];
   const promises = files.map(f => f.text());
   Promise.all(promises).then(texts => {
@@ -653,12 +662,12 @@ function loadFiles(fileList, dz, stateKey) {
   });
 }
 
-function getMergeMode() {
+export function getMergeMode() {
   const active = document.querySelector(".merge-btn.active") as HTMLElement | null;
   return active ? active.dataset.merge : "union";
 }
 
-function mergeCSVTexts(texts, mode) {
+export function mergeCSVTexts(texts, mode) {
   if (!texts || texts.length <= 1) return texts?.[0] || "";
   if (mode === "add") return texts.join("\n");
   // Union: remove duplicate lines (keeping first occurrence), preserve header
@@ -684,7 +693,7 @@ document.querySelectorAll(".merge-btn").forEach(btn => {
   });
 });
 
-function updateDropZoneHints(broker) {
+export function updateDropZoneHints(broker) {
   const hints = {
     fidelity: { pos: "Fidelity positions export", hist: "Fidelity account history" },
     schwab: { pos: "Schwab positions export", hist: "Schwab transaction history" },
@@ -702,7 +711,7 @@ setupDropZone("dz-history", "rawHistTexts");
 
 // ─── Schwab API connect / sync (Phase 6) ─────────────────────────────────────
 
-async function checkSchwabStatus() {
+export async function checkSchwabStatus() {
   const panel = document.getElementById("schwab-api-panel");
   if (!panel) return;
 
@@ -745,7 +754,7 @@ async function checkSchwabStatus() {
   }
 }
 
-async function schwabSaveConfig() {
+export async function schwabSaveConfig() {
   const idEl = document.getElementById("schwab-client-id") as HTMLInputElement | null;
   const secretEl = document.getElementById("schwab-client-secret") as HTMLInputElement | null;
   const errEl = document.getElementById("schwab-config-error") as HTMLElement | null;
@@ -775,7 +784,7 @@ async function schwabSaveConfig() {
   }
 }
 
-async function schwabStartConnect() {
+export async function schwabStartConnect() {
   const { ok, data } = await fetchJson("/api/schwab/auth/url");
   if (!ok || !data?.auth_url) {
     alert(data?.error || "Could not get auth URL. Check that SCHWAB_CLIENT_ID and SCHWAB_CLIENT_SECRET are set in .env.");
@@ -789,7 +798,7 @@ async function schwabStartConnect() {
   window.open(data.auth_url, "_blank");
 }
 
-async function schwabSubmitCallback() {
+export async function schwabSubmitCallback() {
   const input = document.getElementById("schwab-callback-url") as HTMLInputElement | null;
   const errEl = document.getElementById("schwab-callback-error");
   const url = input?.value?.trim();
@@ -818,7 +827,7 @@ async function schwabSubmitCallback() {
   }
 }
 
-async function schwabSync() {
+export async function schwabSync() {
   const btn = document.getElementById("btn-schwab-sync") as HTMLButtonElement | null;
   const statusEl = document.getElementById("schwab-sync-status");
   if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
@@ -863,7 +872,7 @@ async function schwabSync() {
   }
 }
 
-async function schwabDisconnect() {
+export async function schwabDisconnect() {
   if (!confirm("Disconnect Schwab and delete local token?")) return;
   await fetchJson("/api/schwab/disconnect", { method: "POST" });
   await checkSchwabStatus();

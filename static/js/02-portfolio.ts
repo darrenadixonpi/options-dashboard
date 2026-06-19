@@ -1,8 +1,10 @@
+import { parseCSVLine, parseOCC, parseOptionFromSchwab } from "./01-parsers";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Share Position Reconstruction
 // ═══════════════════════════════════════════════════════════════════════════
 
-function reconstructSharePositions(positions, histText) {
+export function reconstructSharePositions(positions, histText) {
   if (!histText || !histText.trim()) return positions;
   const lines = histText.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
 
@@ -108,7 +110,7 @@ function reconstructSharePositions(positions, histText) {
 // Status + Strategy
 // ═══════════════════════════════════════════════════════════════════════════
 
-function computeStatus(optType, strike, underlying) {
+export function computeStatus(optType, strike, underlying) {
   if(!underlying||underlying<=0) return {status:"—",severity:"ok"};
   const ratio = optType==="Put" ? (strike-underlying)/underlying : (underlying-strike)/underlying;
   if(Math.abs(ratio)<=0.02) return {status:"~ATM",severity:"atm"};
@@ -118,7 +120,7 @@ function computeStatus(optType, strike, underlying) {
   return {status:"ITM",severity:"warn"};
 }
 
-function classifyLegs(legs) {
+export function classifyLegs(legs) {
   legs = aggregateLegsForClassify(legs);
   const equities = legs.filter(l => l.posType === "equity");
   const options = legs.filter(l => l.posType !== "equity");
@@ -259,7 +261,7 @@ function classifyLegs(legs) {
   const p = []; if (nc) p.push(nc + "C"); if (np) p.push(np + "P"); return `${nOpts}-Leg ${p.join("/")}`;
 }
 
-function aggregateLegsForClassify(legs) {
+export function aggregateLegsForClassify(legs) {
   let shareQty = 0;
   const optMap = new Map();
   for (const leg of legs) {
@@ -279,13 +281,13 @@ function aggregateLegsForClassify(legs) {
   return out;
 }
 
-function joinStrategyLabels(labels) {
+export function joinStrategyLabels(labels) {
   const counts = {};
   for (const l of labels) counts[l] = (counts[l] || 0) + 1;
   return Object.entries(counts).map(([name, n]) => (n as number) > 1 ? `${name} (${n})` : name).join(" + ");
 }
 
-function pairVerticalSpreads(optionLegs, optType) {
+export function pairVerticalSpreads(optionLegs, optType) {
   const buckets = new Map();
   for (const leg of optionLegs) {
     const strike = Number((leg.strike || 0).toFixed(4));
@@ -326,7 +328,7 @@ function pairVerticalSpreads(optionLegs, optType) {
   return { labels, unpaired };
 }
 
-function detectButterfly(optionLegs, optType) {
+export function detectButterfly(optionLegs, optType) {
   if (optionLegs.length !== 3) return null;
   const byStrike = new Map();
   for (const leg of optionLegs) {
@@ -344,7 +346,7 @@ function detectButterfly(optionLegs, optType) {
   return null;
 }
 
-function labelUnpairedOptions(legs) {
+export function labelUnpairedOptions(legs) {
   const labels = [];
   for (const optType of ["Call", "Put"]) {
     const typed = legs.filter(l => l.optType === optType);
@@ -358,7 +360,7 @@ function labelUnpairedOptions(legs) {
   return labels;
 }
 
-function decomposeOptionStrategies(options) {
+export function decomposeOptionStrategies(options) {
   const callOpts = options.filter(o => o.optType === "Call");
   const putOpts = options.filter(o => o.optType === "Put");
   if (callOpts.length && !putOpts.length) { const bf = detectButterfly(callOpts, "Call"); if (bf) return bf; }
@@ -371,7 +373,7 @@ function decomposeOptionStrategies(options) {
 }
 
 /** Canonical singular strategy label (matches backend _normalize_strategy_label). */
-function normalizeStrategyLabel(label) {
+export function normalizeStrategyLabel(label) {
   if (!label) return "Unknown";
   const map = {
     "Covered Calls": "Covered Call",
@@ -390,7 +392,7 @@ function normalizeStrategyLabel(label) {
   return String(label).split(" + ").map(p => map[p.trim()] || p.trim()).join(" + ");
 }
 
-function detectStrategies(positions) {
+export function detectStrategies(positions) {
   // Group by ticker — equity has no expiry, so group all equity + options per ticker
   const tickerGroups = {};
   for (const pos of positions) {
@@ -436,12 +438,12 @@ function detectStrategies(positions) {
 // Portfolio Engine
 // ═══════════════════════════════════════════════════════════════════════════
 
-function dateKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
-function shortDate(d){return `${d.getMonth()+1}/${String(d.getDate()).padStart(2,"0")}`;}
-function expiryLabel(d){const mo=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return d.getFullYear()>new Date().getFullYear()?`${mo[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`:`${mo[d.getMonth()]} ${d.getDate()}`;}
-function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+export function dateKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+export function shortDate(d){return `${d.getMonth()+1}/${String(d.getDate()).padStart(2,"0")}`;}
+export function expiryLabel(d){const mo=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return d.getFullYear()>new Date().getFullYear()?`${mo[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`:`${mo[d.getMonth()]} ${d.getDate()}`;}
+export function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
-function buildPortfolio(positions, fills, marketData) {
+export function buildPortfolio(positions, fills, marketData) {
   const stratMap = detectStrategies(positions);
   const ivData={}, priceData={}, fullMarket={};
   if(marketData){for(const[tk,d]of (Object.entries(marketData) as [string, any][])){if(d?.price)priceData[tk]=d.price;if(d?.iv!=null)ivData[tk]=d.iv;fullMarket[tk]=d;}}

@@ -1,59 +1,53 @@
 # Frontend modules
 
-Classic scripts loaded in order (shared global scope). Edit the module that matches the feature area.
+TypeScript ES modules, bundled by esbuild into one IIFE. Edit the module that matches the feature area.
 
 | File | Contents |
 |------|----------|
-| `01-parsers.ts` | CSV/OCC parsing, history filters **(TS — source)** |
-| `02-portfolio.ts` | Share reconstruction, strategy detection, `buildPortfolio` **(TS — source)** |
-| `03-render.ts` | `renderPortfolio`, strike/ticker HTML **(TS — source)** |
-| `04-state.ts` | `state`, charts registry, rail, export (PNG + CSV), chart export helpers, keyboard, wide layout **(TS — source)** |
-| `05-session-api.ts` | Session save/restore, fetch helpers, attribution, what-if, import drop zones **(TS pilot — source)** |
-| `06-fetch.ts` | Fetch pipeline click handler **(TS — source)** |
-| `07-tabs.ts` | Tab switching, what-if form handlers, journal cumulative P&L chart **(TS — source)** |
-| `03-chart-utils.ts` | Chart.js crosshair plugin, pan/zoom helpers, fan-chart label layout **(TS — source)** |
-| `08-simulate.ts` | Monte Carlo results, path charts, histogram range UX **(TS pilot — source)** |
-| `09-risk.ts` | Risk matrix, vol surface, unusual activity **(TS — source)** |
-| `10-journal.ts` | Closed trade table **(TS — source)** |
-| `11-roll-catalysts-init.ts` | Roll modal, catalysts, app boot **(TS — source)** |
-| `12-snapshots.ts` | Desk snapshot history UI **(TS — source)** |
-| `10-phase7.ts` | Phase 7 UI — orders, rules, tax lots, VaR, export **(TS — source)** |
-| `13-ibkr.ts` | IBKR Flex panel (status / save / sync / disconnect) **(TS — source)** |
-| `types.ts` | Shared TypeScript interfaces (not loaded at runtime) |
-| `main.ts` | Positions sort + ticker filter + background-refresh badge; also the bundler entry. Loaded **last**. **(TS — source)** |
+| `01-parsers.ts` | CSV/OCC parsing, history filters |
+| `02-portfolio.ts` | Share reconstruction, strategy detection, `buildPortfolio` |
+| `03-render.ts` | `renderPortfolio`, strike/ticker HTML |
+| `04-state.ts` | `state`, charts registry, rail, export (PNG + CSV), chart export helpers, keyboard, wide layout |
+| `05-session-api.ts` | Session save/restore, fetch helpers, attribution, what-if, import drop zones |
+| `06-fetch.ts` | Fetch pipeline click handler |
+| `07-tabs.ts` | Tab switching, what-if form handlers, journal cumulative P&L chart |
+| `03-chart-utils.ts` | Chart.js crosshair plugin, pan/zoom helpers, fan-chart label layout |
+| `08-simulate.ts` | Monte Carlo results, path charts, histogram range UX |
+| `09-risk.ts` | Risk matrix, vol surface, unusual activity |
+| `10-journal.ts` | Closed trade table |
+| `11-roll-catalysts-init.ts` | Roll modal, catalysts, app boot |
+| `12-snapshots.ts` | Desk snapshot history UI |
+| `10-phase7.ts` | Phase 7 UI — orders, rules, tax lots, VaR, export. Also re-exposes the inline-handler entry points on `window` |
+| `13-ibkr.ts` | IBKR Flex panel (status / save / sync / disconnect) |
+| `main.ts` | Positions sort + ticker filter + background-refresh badge. Imported **last** |
+| `types.ts` | Shared TypeScript interfaces + the `Chart` global, in a `declare global` block (ambient — not bundled at runtime) |
+| `_bundle-entry.ts` | Generated esbuild entry — imports every module in `MODULE_ORDER` for side-effect ordering |
 
-**TypeScript modules:** **all 16 runtime modules are now TypeScript source** (typechecked via `tsconfig.pilot.json`, which now covers the whole frontend). `state` is annotated `AppState` in `04-state.ts`; `types.ts` holds the shared interfaces. The architecture is still global-script scope (the build concatenates each transpiled `.js`); moving to real ES module imports is the remaining backlog item. `npm run build` emits the sibling `.js` for dev script tags (gitignored). CI and `start.bat` run the build automatically. To convert another module: rename `X.js` → `X.ts`, add it to `tsconfig.pilot.json` `include` + `.gitignore`, fix DOM casts (`getElementById(...) as HTMLInputElement`), and run `npm run typecheck:pilot`. Cross-module globals resolve if they're declared in `types.ts` (`declare global`) or defined in another included `.ts`.
+**Architecture.** Every module uses real `import`/`export`. esbuild bundles `_bundle-entry.ts` — which imports the modules in `MODULE_ORDER` so their top-level side effects (event-listener registration, app boot) run in the right order — into a single minified IIFE at `static/dist/app.bundle.js`. `index.html` loads just that one file. All 16 runtime modules are typechecked together via `tsconfig.frontend.json`; `state` is annotated `AppState` in `04-state.ts`, and `types.ts` holds the shared interfaces (kept global via `declare global` so no module needs to import the types).
 
-**Phase 3 remainder** (convert all modules, drop `@ts-nocheck`, etc.): see [DOCKET.md](../../DOCKET.md).
+Because the bundle is closure-scoped (not the old shared global scope), the 16 functions called from inline `on*=` HTML attributes — which the browser evaluates in global scope — are re-exposed on `window` from `10-phase7.ts` (`deleteCatalyst` from `11-roll-catalysts-init.ts`). Any new inline handler needs the same treatment; prefer `addEventListener` for new wiring.
+
+To convert/add a module: write it as a `.ts` with `import`/`export`, add it to `tsconfig.frontend.json` `include` and to `MODULE_ORDER` in `tools/frontend-manifest.mjs` (which regenerates `_bundle-entry.ts`), fix DOM casts (`getElementById(...) as HTMLInputElement`), and run `npm run typecheck:frontend`.
 
 Styles: `../css/app.css`
 
-Module order is defined once in `tools/frontend-manifest.mjs` (used by the bundler and Flask bundle mode).
-
-## Dev (default)
-
-`index.html` loads each file via `<script src="/static/js/…">`. After editing `.ts` pilot files, run **`npm run build`** (or use `start.bat`, which runs prep including build).
-
-Chart.js loads from **`static/vendor/`** (vendored locally — not CDN).
-
-## Production bundle (#7)
+## Build
 
 ```bash
 npm install
-npm run build          # transpile TS + minified static/dist/app.bundle.js + manifest.json
+npm run build          # bundle _bundle-entry.ts → minified static/dist/app.bundle.js + manifest.json, sync index.html
 npm run build:watch    # rebuild on save (dev: sourcemaps, no minify)
-npm run build:prod     # minified build + patch index.html to bundle mode
 ```
+
+`start.bat` runs the build automatically (via `prep_before_start.py`); CI runs it too. Skip prep during iteration with `set OD_SKIP_PREP=1`, then run `npm run build` after any `.ts` edit.
 
 | Command | Purpose |
 |---------|---------|
 | `npm run typecheck` | Check shared types in `types.ts` |
-| `npm run typecheck:pilot` | Check TS pilot modules |
+| `npm run typecheck:frontend` | Typecheck all 16 modules under `tsconfig.frontend.json` |
 | `npm run test:e2e` | Playwright chart smoke tests |
 | `npm run vendor:charts` | Re-download vendored Chart.js + annotation plugin |
-| `npm run index:bundle` | Point index.html at the bundle (after `npm run build`) |
-| `npm run index:modules` | Restore individual script tags |
-| `USE_JS_BUNDLE=1` | Flask serves bundle **without** editing index.html (Docker uses this) |
 
-To re-split from a monolithic inline script: `python tools/split_frontend.py`  
-To rebuild `index.html` script tags: `python tools/rebuild_index.py`
+Chart.js loads from **`static/vendor/`** (vendored locally — not CDN), before the bundle. Module order is defined once in `tools/frontend-manifest.mjs`. `USE_JS_BUNDLE=1` lets Flask serve the bundle without editing `index.html` (now a no-op since the build already points `index.html` at the bundle; retained for Docker parity).
+
+**Phase 3** (TypeScript + ES modules) is complete — see [DOCKET.md](../../DOCKET.md).

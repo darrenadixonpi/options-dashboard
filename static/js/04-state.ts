@@ -1,27 +1,33 @@
+import { dateKey, esc, normalizeStrategyLabel } from "./02-portfolio";
+import { fetchJson, getMergedPositions, positionPayload, refreshOptionMarks, renderAttribution, saveSession } from "./05-session-api";
+import { refreshCumulativePnlChart, switchToTab } from "./07-tabs";
+import { fmtDollar, jumpToSimTicker, renderSimResults } from "./08-simulate";
+import { _renderVolSurfaceChart, loadRiskMatrix } from "./09-risk";
+import { renderTradeHistory } from "./10-journal";
+import { loadSnapshotHistoryUI } from "./12-snapshots";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // App State + Wiring
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SESSION_KEY = "optionsDashboard_session_v2";
-const TAB_MAP = { positions: "tab-dashboard", risk: "tab-risk", simulate: "tab-simulate", journal: "tab-history", orders: "tab-orders" };
-const DEFAULT_ALERT_THRESHOLDS = {
+export const SESSION_KEY = "optionsDashboard_session_v2";
+export const TAB_MAP = { positions: "tab-dashboard", risk: "tab-risk", simulate: "tab-simulate", journal: "tab-history", orders: "tab-orders" };
+export const DEFAULT_ALERT_THRESHOLDS = {
   dteHigh: 7, dteMedium: 21, ivRank: 75, exDivDays: 14,
   portfolioPProfit: 45, tickerPProfit: 35, marksStaleMin: 15,
   bookDeltaAbs: 500, bookVegaAbs: 2500, tickerDeltaAbs: 300, bookThetaBelow: -500,
 };
 /** @type {AppState} */
-const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any; deskAlertFromFetch?: boolean; journalDailyPnl?: any; posSortBy?: string; lastBookMtm?: any; bookTimeline?: any } = { posText: null, histText: null, rawPosTexts: null, rawHistTexts: null, marketData: null, portfolio: null, positions: [], fills: [], format: "", simDone: false, simResult: null, multiFile: false, viewMode: "ticker", greeks: null, events: null, tradeHistory: null, prevSnapshot: null, fetchedAt: null, optionMarks: null, marksFetchedAt: null, marksNote: null, riskMatrixLoaded: false, simMeta: null, attribution: null, hypothetical: [], whatifEditIndex: null, wiChainCache: {}, lastRiskMatrix: null, deskAlerts: [], alertHistory: [], dismissedAlertKeys: [], alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS }, alertNotifyOnFetch: false, lastAlertNotifyBatch: null, journalSort: { col: "closeDate", dir: "desc" }, journalFilter: "", journalStrategyFilter: "", journalDateFilter: "", journalShowAssignmentLegs: false, simCollapseState: {}, simFocusTicker: null, simScrollY: 0, simPProfitView: "book", autoRefresh: { enabled: false, intervalMin: 10 } };
-let simNavObserver = null;
-let autoRefreshTimer = null;
-let chartInstances: Record<string, ChartHandle> = {};
-function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+export const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any; deskAlertFromFetch?: boolean; journalDailyPnl?: any; posSortBy?: string; lastBookMtm?: any; bookTimeline?: any } = { posText: null, histText: null, rawPosTexts: null, rawHistTexts: null, marketData: null, portfolio: null, positions: [], fills: [], format: "", simDone: false, simResult: null, multiFile: false, viewMode: "ticker", greeks: null, events: null, tradeHistory: null, prevSnapshot: null, fetchedAt: null, optionMarks: null, marksFetchedAt: null, marksNote: null, riskMatrixLoaded: false, simMeta: null, attribution: null, hypothetical: [], whatifEditIndex: null, wiChainCache: {}, lastRiskMatrix: null, deskAlerts: [], alertHistory: [], dismissedAlertKeys: [], alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS }, alertNotifyOnFetch: false, lastAlertNotifyBatch: null, journalSort: { col: "closeDate", dir: "desc" }, journalFilter: "", journalStrategyFilter: "", journalDateFilter: "", journalShowAssignmentLegs: false, simCollapseState: {}, simFocusTicker: null, simScrollY: 0, simPProfitView: "book", autoRefresh: { enabled: false, intervalMin: 10 } };
+export let chartInstances: Record<string, ChartHandle> = {};
+export function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
 
-function legKeyFromPos(ticker, expiry, strike, optType) {
+export function legKeyFromPos(ticker, expiry, strike, optType) {
   const exp = expiry instanceof Date ? dateKey(expiry) : (expiry || "na");
   return `${ticker}|${exp}|${strike}|${optType}`;
 }
 
-function jumpToLeg(legKey, tickerOnly) {
+export function jumpToLeg(legKey, tickerOnly?) {
   switchToTab("positions");
   requestAnimationFrame(() => {
     let el = legKey ? document.querySelector(`[data-leg-id="${legKey}"]`) : null;
@@ -37,7 +43,7 @@ function jumpToLeg(legKey, tickerOnly) {
   });
 }
 
-function jumpToTickerContextual(tkr, legKey?) {
+export function jumpToTickerContextual(tkr, legKey?) {
   if (!tkr) return;
   const onSim = (document.querySelector(".tab.active") as HTMLElement | null)?.dataset.tab === "simulate";
   if (onSim && state.simResult?.ticker_paths?.[tkr] && typeof jumpToSimTicker === "function") {
@@ -47,7 +53,7 @@ function jumpToTickerContextual(tkr, legKey?) {
   jumpToLeg(legKey || null, tkr);
 }
 
-function jumpToTickerFromPositions(tkr) {
+export function jumpToTickerFromPositions(tkr) {
   if (!tkr) return;
   if (state.simResult?.ticker_paths?.[tkr] && typeof jumpToSimTicker === "function") {
     jumpToSimTicker(tkr);
@@ -56,7 +62,7 @@ function jumpToTickerFromPositions(tkr) {
   jumpToLeg(null, tkr);
 }
 
-function bestTickerMatch(q) {
+export function bestTickerMatch(q) {
   const tickers = [...new Set(state.positions.map(p => p.ticker))].sort();
   const qq = q.trim().toUpperCase();
   if (!qq) return tickers[0] || null;
@@ -67,7 +73,7 @@ function bestTickerMatch(q) {
   return inc[0] || null;
 }
 
-function confirmTickerSearch() {
+export function confirmTickerSearch() {
   const inp = document.getElementById("ticker-search-input") as HTMLInputElement | null;
   const tkr = bestTickerMatch(inp?.value || "");
   if (!tkr) return;
@@ -75,7 +81,7 @@ function confirmTickerSearch() {
   jumpToTickerContextual(tkr);
 }
 
-function openTickerSearch() {
+export function openTickerSearch() {
   const ov = document.getElementById("ticker-search-overlay");
   if (!ov) return;
   ov.hidden = false;
@@ -85,7 +91,7 @@ function openTickerSearch() {
   renderTickerSearchResults("");
 }
 
-function renderTickerSearchResults(q) {
+export function renderTickerSearchResults(q) {
   const box = document.getElementById("ticker-search-results");
   if (!box) return;
   const tickers = [...new Set(state.positions.map(p => p.ticker))].sort();
@@ -104,7 +110,7 @@ function renderTickerSearchResults(q) {
   });
 }
 
-function updateWideLayoutButton() {
+export function updateWideLayoutButton() {
   const btn = document.getElementById("btn-wide-layout");
   const wide = document.querySelector(".container")?.classList.contains("wide");
   if (btn) {
@@ -114,7 +120,7 @@ function updateWideLayoutButton() {
   }
 }
 
-function refreshLayoutCharts() {
+export function refreshLayoutCharts() {
   requestAnimationFrame(() => {
     setTimeout(() => {
       const tab = (document.querySelector(".tab.active") as HTMLElement | null)?.dataset.tab;
@@ -135,7 +141,7 @@ function refreshLayoutCharts() {
   });
 }
 
-function goToRiskMatrix() {
+export function goToRiskMatrix() {
   switchToTab("risk");
   const scrollToMatrix = () => {
     const el = document.getElementById("risk-matrix-container");
@@ -151,7 +157,7 @@ function goToRiskMatrix() {
   }
 }
 
-function downloadText(filename, text, mime?) {
+export function downloadText(filename, text, mime?) {
   const blob = new Blob([text], { type: mime || "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -160,19 +166,19 @@ function downloadText(filename, text, mime?) {
   URL.revokeObjectURL(a.href);
 }
 
-function chartExportFilename(base) {
+export function chartExportFilename(base) {
   const slug = String(base || "chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${slug}-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.png`;
 }
 
-function downloadBlobPng(dataUrl, filename) {
+export function downloadBlobPng(dataUrl, filename) {
   const a = document.createElement("a");
   a.href = dataUrl;
   a.download = filename;
   a.click();
 }
 
-function downloadCanvasPng(canvasId, filename) {
+export function downloadCanvasPng(canvasId, filename) {
   const c = document.getElementById(canvasId) as HTMLCanvasElement | null;
   if (!c?.toDataURL) return false;
   if (c.width < 2 || c.height < 2) return false;
@@ -184,12 +190,12 @@ function downloadCanvasPng(canvasId, filename) {
   }
 }
 
-function _pathChartWrapForCanvas(canvasId) {
+export function _pathChartWrapForCanvas(canvasId) {
   const tkr = canvasId.replace(/^path-/, "");
   return document.getElementById(`path-wrap-${tkr}`) || document.getElementById(canvasId)?.closest(".path-chart-wrap");
 }
 
-function _snapshotChartPng(canvasId, baseName) {
+export function _snapshotChartPng(canvasId, baseName) {
   const ch = chartInstances[canvasId];
   if (ch?.toBase64Image) {
     try {
@@ -200,7 +206,7 @@ function _snapshotChartPng(canvasId, baseName) {
   return downloadCanvasPng(canvasId, chartExportFilename(baseName || canvasId));
 }
 
-function _exportChartWithLayout(canvasId, baseName) {
+export function _exportChartWithLayout(canvasId, baseName) {
   const wrap = _pathChartWrapForCanvas(canvasId);
   const layout = document.getElementById("sim-path-layout");
   const wasCollapsed = wrap?.classList.contains("collapsed");
@@ -222,12 +228,12 @@ function _exportChartWithLayout(canvasId, baseName) {
   return ok;
 }
 
-function exportChartCanvas(canvasId, baseName) {
+export function exportChartCanvas(canvasId, baseName) {
   if (canvasId.startsWith("path-")) return _exportChartWithLayout(canvasId, baseName);
   return _snapshotChartPng(canvasId, baseName);
 }
 
-function exportAllSimPathCharts() {
+export function exportAllSimPathCharts() {
   return (async () => {
     const wraps = Array.from(document.querySelectorAll("#ticker-path-charts .path-chart-wrap"));
     const saved = wraps.map(w => ({
@@ -269,12 +275,12 @@ function exportAllSimPathCharts() {
 }
 
 /** Inline export button for chart card headers (classic scripts — global HTML helper). */
-function chartExportBtn(canvasId, baseName, label = "PNG") {
+export function chartExportBtn(canvasId, baseName, label = "PNG") {
   const name = baseName || canvasId;
   return `<button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="${canvasId}" data-export-name="${name}" title="Export PNG">${label}</button>`;
 }
 
-function exportHtmlTablePng(tableEl, baseName) {
+export function exportHtmlTablePng(tableEl, baseName) {
   if (!tableEl?.rows?.length) return false;
   const canvas = document.createElement("canvas");
   const rows = tableEl.rows;
@@ -312,7 +318,7 @@ function exportHtmlTablePng(tableEl, baseName) {
   return true;
 }
 
-function exportElementAsTablePng(elementId, baseName) {
+export function exportElementAsTablePng(elementId, baseName) {
   const el = document.getElementById(elementId);
   if (!el) return false;
   const table = el.tagName === "TABLE" ? el : el.querySelector("table");
@@ -320,7 +326,7 @@ function exportElementAsTablePng(elementId, baseName) {
   return exportHtmlTablePng(table, baseName || elementId);
 }
 
-function initChartExportHandlers() {
+export function initChartExportHandlers() {
   if ((window as any).__chartExportInit) return;
   (window as any).__chartExportInit = true;
   document.addEventListener("click", (e) => {
@@ -340,7 +346,7 @@ function initChartExportHandlers() {
   });
 }
 
-function exportRiskMatrixCsv() {
+export function exportRiskMatrixCsv() {
   const d: any = state.lastRiskMatrix;
   if (!d?.grid) return;
   let csv = "IV\\Price," + d.priceSteps.map(p => `${p}%`).join(",") + "\n";
@@ -350,7 +356,7 @@ function exportRiskMatrixCsv() {
   downloadText(`risk-matrix-${new Date().toISOString().slice(0,10)}.csv`, csv, "text/csv");
 }
 
-function exportSimSummary() {
+export function exportSimSummary() {
   if (!state.simResult) return;
   const s = state.simResult;
   const lines = [
@@ -369,7 +375,7 @@ function exportSimSummary() {
   downloadText(`sim-summary-${new Date().toISOString().slice(0,10)}.txt`, lines.join("\n"));
 }
 
-function exportJournalCsv() {
+export function exportJournalCsv() {
   const trades = getFilteredJournalTrades();
   if (!trades.length) return;
   const hdr = "Ticker,Type,Strategy,Close Event,Open,Close,Days,Qty,PnL,Leg PnL,Roll Label,Assignment Combined,Linked,Warnings\n";
@@ -399,13 +405,13 @@ function exportJournalCsv() {
   downloadText(`journal-${new Date().toISOString().slice(0,10)}.csv`, hdr + rows, "text/csv");
 }
 
-function journalVisibleTrades(trades) {
+export function journalVisibleTrades(trades) {
   return (trades || []).filter(t =>
     !t.journalSuppress && !t.journalSuppressStats && !t.isRollOpenRef
   );
 }
 
-function computeJournalRiskMetrics(dailySeries) {
+export function computeJournalRiskMetrics(dailySeries) {
   if (!dailySeries || dailySeries.length < 5) return null;
   const dayMap = Object.fromEntries(dailySeries.map(d => [d.date, d.dayPnl]));
   const dates = Object.keys(dayMap).sort();
@@ -436,16 +442,16 @@ function computeJournalRiskMetrics(dailySeries) {
   };
 }
 
-function journalTradePnl(t) {
+export function journalTradePnl(t) {
   return t?.pnl ?? 0;
 }
 
-function journalGroupId(t) {
+export function journalGroupId(t) {
   return t?.strategyGroupId || `solo|${t.ticker}|${t.closeDate}|${t.symbol || ""}`;
 }
 
 /** Strategy-group stats; includes full spread P&L when any leg matches filter. */
-function computeJournalStats(allTrades, matchedTrades) {
+export function computeJournalStats(allTrades, matchedTrades) {
   const pool = journalVisibleTrades(allTrades);
   const matched = journalVisibleTrades(matchedTrades);
   if (!matched.length) return null;
@@ -502,7 +508,7 @@ function computeJournalStats(allTrades, matchedTrades) {
   };
 }
 
-function getJournalStatsForView() {
+export function getJournalStatsForView() {
   const all = state.tradeHistory?.trades || [];
   const matched = getFilteredJournalTrades();
   const hasFilter = !!(state.journalFilter.trim() || state.journalStrategyFilter || state.journalDateFilter);
@@ -519,7 +525,7 @@ function getJournalStatsForView() {
   return state.tradeHistory?.stats || null;
 }
 
-function buildJournalDailyPnlSeries(trades) {
+export function buildJournalDailyPnlSeries(trades) {
   const visible = journalVisibleTrades(trades);
   const byDate = {};
   const dayTrades = {};
@@ -547,7 +553,7 @@ function buildJournalDailyPnlSeries(trades) {
 }
 
 /** Trades visible in strategy dropdown (ticker + optional chart day; excludes strategy filter). */
-function getJournalTradesForStrategyFilter() {
+export function getJournalTradesForStrategyFilter() {
   let trades = journalVisibleTrades(state.tradeHistory?.trades || []);
   const ft = state.journalFilter.trim().toUpperCase();
   const fd = state.journalDateFilter;
@@ -557,7 +563,7 @@ function getJournalTradesForStrategyFilter() {
 }
 
 /** Trades driving cumulative P&L chart (ticker + strategy; excludes day filter). */
-function getJournalTradesForChart() {
+export function getJournalTradesForChart() {
   let trades = journalVisibleTrades(state.tradeHistory?.trades || []);
   const ft = state.journalFilter.trim().toUpperCase();
   const fs = state.journalStrategyFilter;
@@ -566,7 +572,7 @@ function getJournalTradesForChart() {
   return trades;
 }
 
-function getFilteredJournalTrades() {
+export function getFilteredJournalTrades() {
   let trades = (state.tradeHistory?.trades as any[]) || [];
   if (!state.journalShowAssignmentLegs) trades = trades.filter(t => !t.journalSuppress);
   const ft = state.journalFilter.trim().toUpperCase();
@@ -586,7 +592,7 @@ function getFilteredJournalTrades() {
   return trades;
 }
 
-function findOpenLegKey(trade) {
+export function findOpenLegKey(trade) {
   if (!trade.strike || !trade.expiry) return null;
   const match = state.positions.find(p =>
     p.ticker === trade.ticker && p.optType === trade.optType &&
@@ -597,7 +603,7 @@ function findOpenLegKey(trade) {
   return legKeyFromPos(match.ticker, match.expiry, match.strike, match.optType);
 }
 
-async function loadMiniRiskMatrix() {
+export async function loadMiniRiskMatrix() {
   if (state.lastRiskMatrix || !state.marketData || !state.positions.length) return;
   try {
     const { ok, data } = await fetchJson("/api/risk-matrix", {
@@ -615,7 +621,7 @@ async function loadMiniRiskMatrix() {
   renderPositionsRail();
 }
 
-function renderMiniRiskHtml() {
+export function renderMiniRiskHtml() {
   const d: any = state.lastRiskMatrix;
   if (!d?.grid?.length) {
     if (state.greeks?.risk) {
@@ -639,7 +645,7 @@ function renderMiniRiskHtml() {
   return html;
 }
 
-function renderExpiringRail() {
+export function renderExpiringRail() {
   const el = document.getElementById("rail-expiring-body");
   if (!el) return;
   const today = new Date();
@@ -658,7 +664,7 @@ function renderExpiringRail() {
   });
 }
 
-function renderCatalystsRail() {
+export function renderCatalystsRail() {
   const el = document.getElementById("rail-catalysts-body");
   if (!el) return;
   const today = new Date();
@@ -680,7 +686,7 @@ function renderCatalystsRail() {
   });
 }
 
-function renderAlertsRail() {
+export function renderAlertsRail() {
   const el = document.getElementById("rail-alerts-body");
   const histEl = document.getElementById("rail-alerts-history");
   const cnt = document.getElementById("rail-alerts-count");
@@ -712,7 +718,7 @@ function renderAlertsRail() {
   renderAlertHistoryRail(histEl);
 }
 
-function renderAlertHistoryRail(el) {
+export function renderAlertHistoryRail(el) {
   if (!el) return;
   const events = state.alertHistory || [];
   if (!events.length) {
@@ -725,7 +731,7 @@ function renderAlertHistoryRail(el) {
   }).join("");
 }
 
-async function loadAlertHistory() {
+export async function loadAlertHistory() {
   try {
     const { ok, data } = await fetchJson("/api/alerts/history?limit=20");
     if (ok) state.alertHistory = data.events || [];
@@ -735,7 +741,7 @@ async function loadAlertHistory() {
   renderAlertHistoryRail(document.getElementById("rail-alerts-history"));
 }
 
-async function maybeNotifyDeskAlerts(alerts, fromFetch) {
+export async function maybeNotifyDeskAlerts(alerts, fromFetch) {
   if (!fromFetch || !state.alertNotifyOnFetch) return;
   if (!("Notification" in window)) return;
   const high = (alerts || []).filter(a => a.severity === "high");
@@ -755,7 +761,7 @@ async function maybeNotifyDeskAlerts(alerts, fromFetch) {
   } catch (e) { /* optional */ }
 }
 
-function dismissAlert(alertKey) {
+export function dismissAlert(alertKey) {
   if (!alertKey || state.dismissedAlertKeys.includes(alertKey)) return;
   state.dismissedAlertKeys.push(alertKey);
   state.deskAlerts = (state.deskAlerts || []).filter(a => a.alertKey !== alertKey);
@@ -763,7 +769,7 @@ function dismissAlert(alertKey) {
   saveSession();
 }
 
-function renderAlertThresholdFields() {
+export function renderAlertThresholdFields() {
   const box = document.getElementById("rail-alerts-settings");
   if (!box) return;
   const t = state.alertThresholds || DEFAULT_ALERT_THRESHOLDS;
@@ -796,7 +802,7 @@ function renderAlertThresholdFields() {
   });
 }
 
-function saveAlertThresholds() {
+export function saveAlertThresholds() {
   state.alertThresholds = {
     dteHigh: parseInt((document.getElementById("alert-th-dte-high") as HTMLInputElement | null)?.value, 10) || DEFAULT_ALERT_THRESHOLDS.dteHigh,
     dteMedium: parseInt((document.getElementById("alert-th-dte-med") as HTMLInputElement | null)?.value, 10) || DEFAULT_ALERT_THRESHOLDS.dteMedium,
@@ -816,7 +822,7 @@ function saveAlertThresholds() {
   document.getElementById("rail-alerts-settings").hidden = true;
 }
 
-function toggleAlertSettings() {
+export function toggleAlertSettings() {
   const box = document.getElementById("rail-alerts-settings");
   if (!box) return;
   const show = box.hidden;
@@ -824,7 +830,7 @@ function toggleAlertSettings() {
   box.hidden = !show;
 }
 
-function renderPositionsRail() {
+export function renderPositionsRail() {
   const rail = document.getElementById("positions-rail");
   if (!rail || !state.portfolio) { if (rail) rail.hidden = true; return; }
   rail.hidden = false;
@@ -834,7 +840,7 @@ function renderPositionsRail() {
   renderAlertsRail();
 }
 
-async function refreshDeskAlerts(opts: any = {}) {
+export async function refreshDeskAlerts(opts: any = {}) {
   if (!state.marketData || !state.positions.length) return;
   const fromFetch = opts.fromFetch || !!state.deskAlertFromFetch;
   if (state.deskAlertFromFetch) state.deskAlertFromFetch = false;
@@ -858,7 +864,7 @@ async function refreshDeskAlerts(opts: any = {}) {
   renderAlertsRail();
 }
 
-async function persistAttributionSnapshot() {
+export async function persistAttributionSnapshot() {
   if (!state.attribution) return;
   try {
     await fetch("/api/snapshots/attribution", {
@@ -868,7 +874,7 @@ async function persistAttributionSnapshot() {
   } catch (e) { /* optional */ }
 }
 
-async function persistBookSnapshot() {
+export async function persistBookSnapshot() {
   if (!state.positions?.length || !state.marketData) return;
   try {
     const optionLegs = state.positions.filter(p => p.posType !== "equity" && p.expiry);
@@ -903,7 +909,7 @@ async function persistBookSnapshot() {
   } catch (e) { /* optional */ }
 }
 
-async function loadBookRiskMetrics() {
+export async function loadBookRiskMetrics() {
   try {
     const { ok, data } = await fetchJson("/api/snapshots/book-timeline?limit=60");
     if (!ok) return null;
@@ -915,7 +921,7 @@ async function loadBookRiskMetrics() {
   }
 }
 
-async function persistFetchSession() {
+export async function persistFetchSession() {
   try {
     await fetch("/api/snapshots/session", {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -930,7 +936,7 @@ async function persistFetchSession() {
   } catch (e) { /* optional */ }
 }
 
-function setupKeyboardShortcuts() {
+export function setupKeyboardShortcuts() {
   initChartExportHandlers();
   document.addEventListener("keydown", (e) => {
     if ((e.target as HTMLElement).matches("input, textarea, select") && e.key !== "Escape") return;
@@ -986,7 +992,7 @@ function setupKeyboardShortcuts() {
   document.getElementById("btn-alert-settings")?.addEventListener("click", toggleAlertSettings);
 }
 
-function html2canvasExportRisk(tableEl) {
+export function html2canvasExportRisk(tableEl) {
   exportHtmlTablePng(tableEl, "risk-matrix");
 }
 

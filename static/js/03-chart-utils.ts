@@ -49,7 +49,7 @@ interface ChartInteractionOptsIn {
 }
 
 /** Default index tooltip + vertical crosshair (axis: 'x' | 'y'). */
-function chartInteractionDefaults(opts: ChartInteractionOptsIn = {}): Record<string, any> {
+export function chartInteractionDefaults(opts: ChartInteractionOptsIn = {}): Record<string, any> {
   const axis = opts.axis || "x";
   const base: Record<string, any> = {
     interaction: { mode: "index", intersect: false, axis },
@@ -62,7 +62,7 @@ function chartInteractionDefaults(opts: ChartInteractionOptsIn = {}): Record<str
   return deepMergeChartOpts(base, opts.extra);
 }
 
-function deepMergeChartOpts(a: Record<string, any>, b: Record<string, any>): Record<string, any> {
+export function deepMergeChartOpts(a: Record<string, any>, b: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = { ...a, plugins: { ...(a.plugins || {}) }, scales: { ...(a.scales || {}) } };
   for (const [k, v] of Object.entries(b)) {
     if (k === "plugins" && v && typeof v === "object") {
@@ -98,7 +98,7 @@ interface LabelLine {
  * Spread horizontal line labels (strikes, BE, etc.) to reduce overlap.
  * Returns items with position + yAdjust for Chart.js annotation labels.
  */
-function layoutHorizontalLineLabels(lines: LabelLine[], yMin: number, yMax: number): LabelLine[] {
+export function layoutHorizontalLineLabels(lines: LabelLine[], yMin: number, yMax: number): LabelLine[] {
   if (!lines.length) return [];
   const span = Math.max(yMax - yMin, 0.01);
   const minGap = span * 0.04;
@@ -135,7 +135,7 @@ interface LineStyle {
   fontSize?: number;
 }
 
-function buildHorizontalLineAnnotations(
+export function buildHorizontalLineAnnotations(
   lines: LabelLine[],
   yMin: number,
   yMax: number,
@@ -175,7 +175,7 @@ interface PathData {
   breakevens?: Array<{ value: number }>;
 }
 
-function estimatePathChartYRange(pd: PathData): { yMin: number; yMax: number } {
+export function estimatePathChartYRange(pd: PathData): { yMin: number; yMax: number } {
   const vals: number[] = [];
   for (const key of ["p5", "p95", "p50"] as const) {
     (pd[key] || []).forEach((v: number) => { if (Number.isFinite(v)) vals.push(v); });

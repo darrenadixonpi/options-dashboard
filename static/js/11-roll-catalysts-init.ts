@@ -1,4 +1,9 @@
-async function openRollModal(pos) {
+import { esc } from "./02-portfolio";
+import { TAB_MAP, setupKeyboardShortcuts, updateWideLayoutButton } from "./04-state";
+import { fetchJson, restoreSession, updateFetchButtonState } from "./05-session-api";
+import { fmtDollar } from "./08-simulate";
+
+export async function openRollModal(pos) {
   const modal = document.getElementById("roll-modal");
   modal.hidden = false;
   const expLabel = pos.expiry || "(expiry missing)";
@@ -70,7 +75,7 @@ document.getElementById("roll-modal")?.addEventListener("click", (e) => { if ((e
 // Custom Catalysts (#8)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function loadCatalysts() {
+export async function loadCatalysts() {
   try {
     const res = await fetch("/api/catalysts");
     const catalysts = await res.json();

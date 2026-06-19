@@ -1,15 +1,21 @@
+import { dateKey, esc, shortDate } from "./02-portfolio";
+import { jumpToTickerFromPositions, legKeyFromPos, loadMiniRiskMatrix, refreshDeskAlerts, renderPositionsRail, state } from "./04-state";
+import { optionMarkKey } from "./05-session-api";
+import { openRollModal } from "./11-roll-catalysts-init";
+import { applyTickerFilter } from "./main";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Rendering
 // ═══════════════════════════════════════════════════════════════════════════
 // Rendering
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SEV_CLASS={ok:"badge-ok",warn:"badge-warn",danger:"badge-danger",deep:"badge-deep",atm:"badge-atm"};
+export const SEV_CLASS={ok:"badge-ok",warn:"badge-warn",danger:"badge-danger",deep:"badge-deep",atm:"badge-atm"};
 
 // Realized P&L per ticker from the backend FIFO closed-trades (state.tradeHistory.trades).
 // This is the source of truth: shares matched at cost basis, options signed for short/long,
 // assigned/expired counted as closed. Cached on the tradeHistory object.
-function realizedPnlByTicker() {
+export function realizedPnlByTicker() {
   const th = state.tradeHistory;
   if (!th || !Array.isArray(th.trades)) return {};
   if (th._realizedMap) return th._realizedMap;
@@ -27,13 +33,13 @@ function realizedPnlByTicker() {
 }
 
 // Compact signed dollars, e.g. +$1,234 / −$987.
-function fmtSignedUsd(v) {
+export function fmtSignedUsd(v) {
   const n = Math.round(v || 0);
   return `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString()}`;
 }
 
 // Strategy name compression utility
-function compressStrategy(strategy) {
+export function compressStrategy(strategy) {
   if (!strategy) return "";
   const parts = strategy.split(" + ");
   const uniqueParts = [...new Set(parts)];
@@ -45,11 +51,11 @@ function compressStrategy(strategy) {
   return entries.length > 3 ? shown + ` +${entries.length - 3}` : shown;
 }
 
-const rollPosMap = {};
+export const rollPosMap = {};
 
 // ─── Position sort helpers ────────────────────────────────────────────────
 
-function _tickerMinDTE(tickerMap, tkr) {
+export function _tickerMinDTE(tickerMap, tkr) {
   let minDte = Infinity;
   for (const sec of tickerMap[tkr].sections) {
     if (!sec.expiry) continue;
@@ -60,7 +66,7 @@ function _tickerMinDTE(tickerMap, tkr) {
   return minDte === Infinity ? 9999 : minDte;
 }
 
-function sortTickerKeys(keys, tickerMap) {
+export function sortTickerKeys(keys, tickerMap) {
   const by = state.posSortBy || "alpha";
   const sorted = [...keys];
   if (by === "alpha") {
@@ -83,7 +89,7 @@ function sortTickerKeys(keys, tickerMap) {
   return sorted;
 }
 
-function renderPortfolio(portfolio, hasMarket) {
+export function renderPortfolio(portfolio, hasMarket) {
   const viewMode = state.viewMode || "ticker";
   document.getElementById("notice-bar").hidden = hasMarket;
   const histNotice = document.getElementById("history-notice-bar");
@@ -192,7 +198,7 @@ function renderPortfolio(portfolio, hasMarket) {
   });
 }
 
-function renderTickerHeader(tg) {
+export function renderTickerHeader(tg) {
   const ivClass = tg.iv>=150?"iv-hi":tg.iv>=100?"iv-mid":"iv-lo";
   const ivRankClass = tg.ivRank!=null ? (tg.ivRank>=70?"iv-hi":tg.ivRank>=40?"iv-mid":"iv-lo") : "";
   let ivLine = "";
@@ -242,7 +248,7 @@ function renderTickerHeader(tg) {
   </div><div class="tk-body">`;
 }
 
-function renderStrike(sg, posType, tg) {
+export function renderStrike(sg, posType, tg) {
   const statusClass = SEV_CLASS[sg.severity]||"badge-ok";
   let html = "";
   const isEquity = posType === "equity" || sg.strike == null || sg.shares != null;

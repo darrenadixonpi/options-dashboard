@@ -1,3 +1,6 @@
+import { renderPortfolio } from "./03-render";
+import { state } from "./04-state";
+
 /**
  * Bundler entry marker (#7).
  * Dev: index.html loads MODULE_ORDER files individually (shared global scope).
@@ -7,7 +10,7 @@
 
 // ─── Position filter + sort (Phase 4.2) ──────────────────────────────────
 
-function applyTickerFilter(query) {
+export function applyTickerFilter(query) {
   const q = (query || "").trim().toUpperCase();
   document.querySelectorAll("#portfolio-body .tk-block").forEach(block => {
     const ticker = ((block as HTMLElement).dataset.ticker || "").toUpperCase();

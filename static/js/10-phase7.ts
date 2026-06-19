@@ -1,3 +1,6 @@
+import { refreshDeskAlerts, state } from "./04-state";
+import { applyWhatIfGreeks, renderWhatIfList } from "./05-session-api";
+
 /**
  * Phase 7 — Tax lots, VaR, Strategy templates, Alert rules, Export, Orders
  * Loaded after all other modules. All functions write to global state / DOM.
@@ -5,7 +8,7 @@
 
 // ─── 7.5 Tax Lots ────────────────────────────────────────────────────────────
 
-async function loadTaxLots(method, taxYear) {
+export async function loadTaxLots(method, taxYear) {
   const panel = document.getElementById("tax-lots-panel");
   if (!panel) return;
   panel.innerHTML = '<span style="color:var(--tx3);font-size:12px">Loading…</span>';
@@ -24,7 +27,7 @@ async function loadTaxLots(method, taxYear) {
   }
 }
 
-function renderTaxLots(data, panel) {
+export function renderTaxLots(data, panel) {
   const s = data.summary;
   const gainColor = v => v >= 0 ? "#4caf50" : "#f44336";
   const fmtD = v => (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -71,7 +74,7 @@ function renderTaxLots(data, panel) {
 
 // ─── 7.6 VaR Panel ───────────────────────────────────────────────────────────
 
-async function loadVaR() {
+export async function loadVaR() {
   const panel = document.getElementById("var-panel");
   if (!panel) return;
   if (!state.simResult?.portfolio_pnl?.length) {
@@ -115,7 +118,7 @@ async function loadVaR() {
 
 // ─── 7.4 Strategy Templates ───────────────────────────────────────────────────
 
-async function loadStrategyTemplates() {
+export async function loadStrategyTemplates() {
   const list = document.getElementById("strategy-template-list");
   if (!list) return;
   try {
@@ -139,7 +142,7 @@ async function loadStrategyTemplates() {
   }
 }
 
-async function saveStrategyTemplate() {
+export async function saveStrategyTemplate() {
   const nameEl = document.getElementById("template-name") as HTMLInputElement | null;
   const descEl = document.getElementById("template-desc") as HTMLInputElement | null;
   const name = nameEl?.value?.trim();
@@ -157,7 +160,7 @@ async function saveStrategyTemplate() {
   loadStrategyTemplates();
 }
 
-async function applyStrategyTemplate(templateId) {
+export async function applyStrategyTemplate(templateId) {
   const res = await fetch("/api/strategy-templates");
   const templates = await res.json();
   const t = templates.find(x => x.id === templateId);
@@ -170,7 +173,7 @@ async function applyStrategyTemplate(templateId) {
   if (state.marketData) applyWhatIfGreeks();
 }
 
-async function deleteStrategyTemplate(templateId) {
+export async function deleteStrategyTemplate(templateId) {
   if (!confirm("Delete this template?")) return;
   await fetch(`/api/strategy-templates/${templateId}`, { method: "DELETE" });
   loadStrategyTemplates();
@@ -178,7 +181,7 @@ async function deleteStrategyTemplate(templateId) {
 
 // ─── 7.3 Alert Rules ─────────────────────────────────────────────────────────
 
-async function loadAlertRules() {
+export async function loadAlertRules() {
   const list = document.getElementById("alert-rules-list");
   if (!list) return;
   try {
@@ -204,7 +207,7 @@ async function loadAlertRules() {
   }
 }
 
-async function addAlertRule() {
+export async function addAlertRule() {
   const ct = (document.getElementById("rule-condition-type") as HTMLInputElement | null)?.value;
   const ticker = (document.getElementById("rule-ticker") as HTMLInputElement | null)?.value?.trim().toUpperCase();
   const threshold = parseFloat((document.getElementById("rule-threshold") as HTMLInputElement | null)?.value);
@@ -220,20 +223,20 @@ async function addAlertRule() {
   loadAlertRules();
 }
 
-async function toggleAlertRule(ruleId, enabled) {
+export async function toggleAlertRule(ruleId, enabled) {
   await fetch(`/api/alert-rules/${ruleId}`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled: enabled ? 1 : 0 }),
   });
 }
 
-async function deleteAlertRule(ruleId) {
+export async function deleteAlertRule(ruleId) {
   if (!confirm("Delete this rule?")) return;
   await fetch(`/api/alert-rules/${ruleId}`, { method: "DELETE" });
   loadAlertRules();
 }
 
-async function evaluateAlertRules() {
+export async function evaluateAlertRules() {
   if (!state.marketData) return;
   try {
     const res = await fetch("/api/alert-rules/evaluate", {
@@ -260,14 +263,14 @@ async function evaluateAlertRules() {
 
 // ─── 7.7 Notifications ────────────────────────────────────────────────────────
 
-function requestNotificationPermission() {
+export function requestNotificationPermission() {
   if (!("Notification" in window)) return;
   if (Notification.permission === "default") {
     Notification.requestPermission();
   }
 }
 
-async function testEmailNotification() {
+export async function testEmailNotification() {
   const btn = document.getElementById("btn-test-email") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
   try {
@@ -286,23 +289,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // ─── 7.8 Data Export ─────────────────────────────────────────────────────────
 
-function exportPortfolioHistory() {
+export function exportPortfolioHistory() {
   window.location.href = "/api/export/portfolio-history";
 }
 
-function exportJournal() {
+export function exportJournal() {
   window.location.href = "/api/export/journal";
 }
 
-function exportGreeksSnapshot() {
+export function exportGreeksSnapshot() {
   window.location.href = "/api/export/greeks-snapshot";
 }
 
 // ─── 7.2 Draft Orders ────────────────────────────────────────────────────────
 
-let _orders = [];
+export let _orders = [];
 
-async function loadOrders() {
+export async function loadOrders() {
   const panel = document.getElementById("orders-panel");
   if (!panel) return;
   try {
@@ -314,7 +317,7 @@ async function loadOrders() {
   }
 }
 
-function renderOrders() {
+export function renderOrders() {
   const panel = document.getElementById("orders-panel");
   if (!panel) return;
   if (!_orders.length) {
@@ -340,7 +343,7 @@ function renderOrders() {
   }).join("");
 }
 
-async function createDraftOrder() {
+export async function createDraftOrder() {
   const ticker = (document.getElementById("order-ticker") as HTMLInputElement | null)?.value?.trim().toUpperCase();
   const strategy = (document.getElementById("order-strategy") as HTMLInputElement | null)?.value?.trim();
   const notes = (document.getElementById("order-notes") as HTMLInputElement | null)?.value?.trim();
@@ -360,7 +363,7 @@ async function createDraftOrder() {
   loadOrders();
 }
 
-async function stageOrder(orderId) {
+export async function stageOrder(orderId) {
   const res = await fetch(`/api/orders/${orderId}/submit`, { method: "POST" });
   const data = await res.json();
   if (data._message) {
@@ -371,7 +374,7 @@ async function stageOrder(orderId) {
   loadOrders();
 }
 
-async function deleteOrder(orderId) {
+export async function deleteOrder(orderId) {
   if (!confirm("Delete this order?")) return;
   await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
   loadOrders();
@@ -379,10 +382,22 @@ async function deleteOrder(orderId) {
 
 // ─── Evaluate rules on every fetch ────────────────────────────────────────────
 // Hook into the global fetchedAt change — poll rules after market data updates.
-let _lastEvaluated = null;
+export let _lastEvaluated = null;
 setInterval(() => {
   if (state.fetchedAt && state.fetchedAt !== _lastEvaluated) {
     _lastEvaluated = state.fetchedAt;
     evaluateAlertRules();
   }
 }, 5000);
+
+// ─── Inline-handler compat ───────────────────────────────────────────────────
+// These functions are invoked from inline on* attributes in index.html and in
+// rendered template strings, which the browser evaluates in GLOBAL scope. The
+// ES-module bundle is closure-scoped, so re-expose exactly those entry points on
+// window. (deleteCatalyst is exposed from 11-roll-catalysts-init.)
+Object.assign(window as any, {
+  addAlertRule, applyStrategyTemplate, createDraftOrder, deleteAlertRule, deleteOrder,
+  deleteStrategyTemplate, exportGreeksSnapshot, exportJournal, exportPortfolioHistory,
+  loadTaxLots, loadVaR, requestNotificationPermission, saveStrategyTemplate, stageOrder,
+  testEmailNotification, toggleAlertRule,
+});

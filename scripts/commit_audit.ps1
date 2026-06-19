@@ -20,7 +20,7 @@ git commit -m "fix: fractional OCC strikes, yfinance calendar compat, beta cache
 
 # 2. Dev tooling / env
 git add scripts\prep_before_start.py .env.example
-git commit -m "chore: add typecheck:pilot to prep script, document RISK_FREE and SNAPSHOT_RETENTION_DAYS"
+git commit -m "chore: add typecheck:frontend to prep script, document RISK_FREE and SNAPSHOT_RETENTION_DAYS"
 
 # 3. Docs + AUDIT report
 git add TECHNICAL_EXPLAINER.md CHANGELOG.md DOCKET.md GITHUB.md IMPLEMENTATION_GUIDE.md README.md static\js\README.md AUDIT.md .gitignore

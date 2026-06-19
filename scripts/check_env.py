@@ -15,7 +15,7 @@ REQUIRED_PATHS = (
     "api_schemas.py",
     "static/index.html",
     "static/css/app.css",
-    "static/js/01-parsers.js",
+    "static/js/01-parsers.ts",
     "static/vendor/chart.js/4.4.1/chart.umd.min.js",
     "static/vendor/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js",
 )

@@ -1,3 +1,13 @@
+import { detectHistoryFormat, filterClosedPositions, formatParseHint, parseHistory, parsePositions } from "./01-parsers";
+import { buildPortfolio, dateKey, reconstructSharePositions } from "./02-portfolio";
+import { renderPortfolio } from "./03-render";
+import { SESSION_KEY, persistFetchSession, state } from "./04-state";
+import { buildMarketSnapshot, closeImportDrawer, fetchPnlAttribution, getMergeMode, mergeCSVTexts, openImportDrawer, populateWhatIfTickers, refreshOptionMarks, saveSession, setFetchButtonLoading, updateMarksStaleLabel, updateProvenanceBar } from "./05-session-api";
+import { switchToTab } from "./07-tabs";
+import { enableSimButton } from "./08-simulate";
+import { enableRiskTab } from "./09-risk";
+import { renderTradeHistory } from "./10-journal";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Fetch Button — full pipeline + greeks + events
 // ═══════════════════════════════════════════════════════════════════════════
@@ -32,7 +42,7 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
     log.textContent = "Parsing positions...";
     const parsed = parsePositions(state.posText);
     const {positions: rawPositions, format} = parsed;
-    state.format = format;
+    state.format = format as string;
     // Parse each history file by its OWN broker format (don't use the merged blob —
     // a single detectHistoryFormat would pick one format and drop the other broker's rows).
     state.fills = (state.rawHistTexts || []).flatMap(t => parseHistory(t));

@@ -1,10 +1,16 @@
+import { esc } from "./02-portfolio";
+import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
+import { chartInstances, destroyChart, state } from "./04-state";
+import { fetchJson } from "./05-session-api";
+import { fmtDollar } from "./08-simulate";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Snapshot history UI (#2)
 // ═══════════════════════════════════════════════════════════════════════════
 
-let snapshotAttributionCache = [];
+export let snapshotAttributionCache = [];
 
-async function loadSnapshotHistoryUI() {
+export async function loadSnapshotHistoryUI() {
   const sec = document.getElementById("snapshot-history-section");
   if (!sec) return;
   sec.hidden = false;
@@ -45,7 +51,7 @@ async function loadSnapshotHistoryUI() {
   }
 }
 
-function snapshotLabel(s) {
+export function snapshotLabel(s) {
   try {
     return new Date(s.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
@@ -53,7 +59,7 @@ function snapshotLabel(s) {
   }
 }
 
-function populateSnapshotDiffSelects(snapshots) {
+export function populateSnapshotDiffSelects(snapshots) {
   const selA = document.getElementById("snapshot-diff-a") as HTMLSelectElement | null;
   const selB = document.getElementById("snapshot-diff-b") as HTMLSelectElement | null;
   const result = document.getElementById("snapshot-diff-result");
@@ -74,7 +80,7 @@ function populateSnapshotDiffSelects(snapshots) {
   }
 }
 
-async function runSnapshotDiff() {
+export async function runSnapshotDiff() {
   const result = document.getElementById("snapshot-diff-result");
   const idA = parseInt((document.getElementById("snapshot-diff-a") as HTMLSelectElement | null)?.value ?? "", 10);
   const idB = parseInt((document.getElementById("snapshot-diff-b") as HTMLSelectElement | null)?.value ?? "", 10);
@@ -96,7 +102,7 @@ async function runSnapshotDiff() {
   }
 }
 
-function renderSnapshotDiffResult(data) {
+export function renderSnapshotDiffResult(data) {
   const result = document.getElementById("snapshot-diff-result");
   if (!result) return;
   const p = data.portfolioDelta || {};
@@ -123,7 +129,7 @@ function renderSnapshotDiffResult(data) {
   result.innerHTML = html;
 }
 
-function renderAttributionTimeline(snapshots) {
+export function renderAttributionTimeline(snapshots) {
   const wrap = document.getElementById("snapshot-attribution-chart-wrap");
   if (!wrap) return;
   if (!snapshots.length) {
@@ -162,7 +168,7 @@ function renderAttributionTimeline(snapshots) {
   });
 }
 
-function renderGreekTimeline(points) {
+export function renderGreekTimeline(points) {
   const wrap = document.getElementById("snapshot-greek-chart-wrap");
   if (!wrap) return;
   if (!points.length) {
@@ -197,7 +203,7 @@ function renderGreekTimeline(points) {
   });
 }
 
-function renderFetchSessions(sessions, bookData) {
+export function renderFetchSessions(sessions, bookData) {
   const el = document.getElementById("snapshot-sessions-list");
   if (!el) return;
   const risk = bookData?.risk;
@@ -219,7 +225,7 @@ function renderFetchSessions(sessions, bookData) {
   el.innerHTML = html;
 }
 
-async function loadTickerSnapshotHistory(ticker) {
+export async function loadTickerSnapshotHistory(ticker) {
   const wrap = document.getElementById("snapshot-ticker-chart-wrap");
   if (!wrap || !ticker) return;
   wrap.innerHTML = '<span style="color:var(--tx3);font-size:11px">Loading…</span>';

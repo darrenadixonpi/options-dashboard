@@ -23,10 +23,9 @@ def _parse_module_order() -> list[str]:
     return re.findall(r'"([^"]+\.js)"', match.group(1))
 
 
-def render_script_block(mode: str = "modules") -> str:
-    if mode == "bundle":
-        return '<script src="/static/dist/app.bundle.js"></script>'
-    return "\n".join(f'<script src="/static/js/{name}"></script>' for name in _parse_module_order())
+def render_script_block(mode: str = "bundle") -> str:
+    # ES-module bundle only -- individual classic-script tags cannot carry import/export.
+    return '<script src="/static/dist/app.bundle.js"></script>'
 
 
 def patch_index_html(mode: str = "modules") -> None:

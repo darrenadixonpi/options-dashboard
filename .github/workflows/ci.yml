@@ -38,7 +38,7 @@ jobs:
         run: npm run typecheck
 
       - name: Typecheck (Phase 3 pilot modules)
-        run: npm run typecheck:pilot
+        run: npm run typecheck:frontend
 
       - name: Run smoke tests
         run: python -m pytest tests/ -v

@@ -1,17 +1,23 @@
+import { dateKey, esc, shortDate } from "./02-portfolio";
+import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
+import { chartInstances, destroyChart, renderPositionsRail, state } from "./04-state";
+import { applyWhatIfGreeks, fetchJson, getMergedPositions, renderWhatIfList } from "./05-session-api";
+import { fmtDollar } from "./08-simulate";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Risk Tab (#14, #16, #17)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const RISK_MAX_DAYS_FWD = 730;
+export const RISK_MAX_DAYS_FWD = 730;
 
-function formatRiskDaysLabel(days) {
+export function formatRiskDaysLabel(days) {
   const d = parseInt(days, 10) || 0;
   if (d === 0) return "0 (today)";
   if (d >= 365) return `${d} (~${(d / 365).toFixed(1)}y)`;
   return `${d}d`;
 }
 
-function getPositionExpiryCheckpoints(maxDays = RISK_MAX_DAYS_FWD) {
+export function getPositionExpiryCheckpoints(maxDays = RISK_MAX_DAYS_FWD) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const byDate = new Map();
@@ -32,7 +38,7 @@ function getPositionExpiryCheckpoints(maxDays = RISK_MAX_DAYS_FWD) {
   return [...byDate.values()].sort((a, b) => a.days - b.days);
 }
 
-function setRiskDaysForward(days, reload = false) {
+export function setRiskDaysForward(days, reload = false) {
   const slider = document.getElementById("risk-days-slider") as HTMLInputElement | null;
   const label = document.getElementById("risk-days-label");
   const d = Math.max(0, Math.min(RISK_MAX_DAYS_FWD, parseInt(days, 10) || 0));
@@ -49,7 +55,7 @@ function setRiskDaysForward(days, reload = false) {
   }
 }
 
-function renderRiskExpiryCheckpoints() {
+export function renderRiskExpiryCheckpoints() {
   const el = document.getElementById("risk-expiry-checkpoints");
   if (!el) return;
   const points = getPositionExpiryCheckpoints();
@@ -74,7 +80,7 @@ function renderRiskExpiryCheckpoints() {
   setRiskDaysForward(cur, false);
 }
 
-function enableRiskTab() {
+export function enableRiskTab() {
   if (!state.marketData || !state.positions.length) return;
   document.getElementById("risk-empty").hidden = true;
   document.getElementById("risk-content").hidden = false;
@@ -98,7 +104,7 @@ function enableRiskTab() {
   }
 }
 
-async function loadRiskMatrix() {
+export async function loadRiskMatrix() {
   if (!state.marketData || !state.positions.length) return;
   const btn = document.getElementById("btn-risk-matrix") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "Loading..."; }
@@ -152,7 +158,7 @@ document.getElementById("risk-days-slider")?.addEventListener("input", (e) => {
 
 document.getElementById("vol-surface-ticker")?.addEventListener("change", (e) => { loadVolSurface((e.target as HTMLSelectElement).value); });
 
-function renderRiskMatrix(data) {
+export function renderRiskMatrix(data) {
   const { priceSteps, ivSteps, grid } = data;
   if (!grid || !grid.length) {
     document.getElementById("risk-matrix-body").innerHTML = '<div style="color:var(--tx3);font-size:12px">No risk matrix data available.</div>';
@@ -190,7 +196,7 @@ function renderRiskMatrix(data) {
   document.getElementById("risk-matrix-body").innerHTML = html;
 }
 
-function renderUnusualActivity(data) {
+export function renderUnusualActivity(data) {
   if (!data.alerts?.length) {
     document.getElementById("unusual-section").hidden = false;
     document.getElementById("unusual-body").innerHTML = '<div style="color:var(--tx3);font-size:12px">No unusual activity detected in your tickers (volume/OI ratio < 2×).</div>';
@@ -210,7 +216,7 @@ function renderUnusualActivity(data) {
   document.getElementById("unusual-body").innerHTML = html;
 }
 
-async function loadVolSurface(ticker) {
+export async function loadVolSurface(ticker) {
   const container = document.getElementById("vol-surface-container");
   const scrollY = window.scrollY;
   container.hidden = false;
@@ -235,7 +241,7 @@ async function loadVolSurface(ticker) {
   }
 }
 
-function renderVolSurface(data) {
+export function renderVolSurface(data) {
   destroyChart("chart-vol-surface");
   const canvas = document.getElementById("chart-vol-surface");
   const existing = document.getElementById("vol-surface-msg");
@@ -254,7 +260,7 @@ function renderVolSurface(data) {
   _renderVolSurfaceChart();
 }
 
-function _renderVolSurfaceChart() {
+export function _renderVolSurfaceChart() {
   const data = state._volSurfaceData;
   if (!data?.expiries?.length) return;
   destroyChart("chart-vol-surface");

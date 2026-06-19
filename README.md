@@ -64,7 +64,7 @@ npm install
 npm run build
 python -m pytest tests/ -q          # 40 tests
 npm run typecheck                   # shared types
-npm run typecheck:pilot             # TS pilot modules
+npm run typecheck:frontend             # TS pilot modules
 npm run test:e2e                    # Playwright (optional)
 ```
 
@@ -137,7 +137,7 @@ npm run build:prod     # minified build + patch index.html to bundle mode
 | Command | Purpose |
 |---------|---------|
 | `npm run typecheck` | Check shared types (`types.ts`) |
-| `npm run typecheck:pilot` | Check TS pilot modules |
+| `npm run typecheck:frontend` | Check TS pilot modules |
 | `npm run test:e2e` | Playwright simulate/theta chart tests |
 | `npm run vendor:charts` | Re-download vendored Chart.js |
 | `npm run index:bundle` | Point index.html at the bundle (after `npm run build`) |

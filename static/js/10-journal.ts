@@ -1,9 +1,14 @@
+import { esc, normalizeStrategyLabel } from "./02-portfolio";
+import { findOpenLegKey, getFilteredJournalTrades, getJournalStatsForView, getJournalTradesForChart, getJournalTradesForStrategyFilter, journalTradePnl, jumpToLeg, loadBookRiskMetrics, state } from "./04-state";
+import { drawCumulativePnlChart } from "./07-tabs";
+import { fmtDollar } from "./08-simulate";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Trade History (#12)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** Canonical strategy names — filter shows only labels present in closed trades (count > 0). */
-const JOURNAL_STRATEGY_CATALOG = {
+export const JOURNAL_STRATEGY_CATALOG = {
   "Single-leg": ["Long Call", "Long Put", "Short Call", "Short Put", "Call Roll", "Put Roll"],
   "Spreads": ["Bull Call Spread", "Bear Call Spread", "Bull Put Spread", "Bear Put Spread"],
   "Volatility": ["Short Straddle", "Long Straddle", "Short Strangle", "Long Strangle", "Iron Condor", "Iron Butterfly"],
@@ -15,7 +20,7 @@ const JOURNAL_STRATEGY_CATALOG = {
   "Shares": ["Long Shares", "Short Shares"],
 };
 
-function buildJournalStrategyFilterOptions(trades, selected) {
+export function buildJournalStrategyFilterOptions(trades, selected) {
   const counts = {};
   for (const t of trades) {
     const s = normalizeStrategyLabel(t.strategy || "Unknown");
@@ -44,7 +49,7 @@ function buildJournalStrategyFilterOptions(trades, selected) {
   return html;
 }
 
-function renderJournalSummary(stats) {
+export function renderJournalSummary(stats) {
   if (!stats) return;
   const filteredTag = stats.filtered ? ' <span style="font-size:10px;color:var(--tx3)">filtered</span>' : "";
   const winTitle = "Win rate by strategy close (spreads/multi-leg = 1 trade). Leg rate: " + (stats.legWinRate ?? "—") + "%";
@@ -75,7 +80,7 @@ function renderJournalSummary(stats) {
     <div class="stat"><div class="stat-label">Avg Hold</div><div class="stat-val">${stats.avgHoldDays}d</div></div>`;
 }
 
-function renderTradeHistory(data) {
+export function renderTradeHistory(data) {
   if (!data.trades?.length && !data.stats) {
     document.getElementById("history-empty").hidden = false;
     document.getElementById("history-content").hidden = true;
@@ -294,7 +299,7 @@ function renderTradeHistory(data) {
  * Returns [{isSolo, id, trades, ticker, strategy, totalPnl, openDate, closeDate,
  *           closeDates, crossDay, outlier, sortVal}]
  */
-function _buildJournalGroups(trades) {
+export function _buildJournalGroups(trades) {
   const byId = new Map();
   for (const t of trades) {
     const gid = t.strategyGroupId || `solo|${t.ticker}|${t.closeDate}|${t.symbol || ""}`;
@@ -355,7 +360,7 @@ function _buildJournalGroups(trades) {
 }
 
 /** Render one leg row (td cells) — used both for solo rows and multi-leg sub-rows */
-function _renderLegRow(t: any, opts: { indent?: boolean; suppressedStyle?: string } = {}) {
+export function _renderLegRow(t: any, opts: { indent?: boolean; suppressedStyle?: string } = {}) {
   const { indent = false, suppressedStyle = "" } = opts;
   const isRollOpen = !!t.isRollOpenRef;
   const pnlColor = isRollOpen ? "var(--tx3)" : (journalTradePnl(t) >= 0 ? "var(--ok-tx)" : "var(--err-tx)");

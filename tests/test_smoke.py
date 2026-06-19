@@ -528,16 +528,14 @@ class TestFrontendBundle:
         assert "10-phase7.js" in order
         assert len(order) == 16
 
-    def test_render_script_block_modes(self):
+    def test_render_script_block_is_bundle(self):
         mod = self._load_frontend_scripts()
-        modules = mod.render_script_block("modules")
-        assert modules.count("<script") == 16
-        assert "01-parsers.js" in modules
-        assert "main.js" in modules
-        assert "05-session-api.js" in modules
-        bundle = mod.render_script_block("bundle")
-        assert "app.bundle.js" in bundle
-        assert "01-parsers.js" not in bundle
+        # ES-module build emits a single bundle tag (individual classic-script
+        # tags can't carry import/export), regardless of the legacy mode arg.
+        for block in (mod.render_script_block(), mod.render_script_block("bundle"), mod.render_script_block("modules")):
+            assert block.count("<script") == 1
+            assert "app.bundle.js" in block
+            assert "01-parsers.js" not in block
 
     def test_manifest_lists_typescript_modules(self):
         import json

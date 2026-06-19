@@ -1,8 +1,18 @@
+import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
+import { TAB_MAP, buildJournalDailyPnlSeries, chartInstances, destroyChart, getJournalTradesForChart, journalTradePnl, state } from "./04-state";
+import { applyWhatIfGreeks, applyWhatIfStrikeMid, cancelWhatIfEdit, closeImportDrawer, loadWhatIfExpiries, loadWhatIfStrikes, openImportDrawer, renderWhatIfList, saveSession } from "./05-session-api";
+import { fmtDollar } from "./08-simulate";
+import { loadRiskMatrix } from "./09-risk";
+import { renderTradeHistory } from "./10-journal";
+import { loadOrders, loadStrategyTemplates } from "./10-phase7";
+import { loadSnapshotHistoryUI } from "./12-snapshots";
+let simNavObserver: any = null;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab switching — extended for Risk + History
 // ═══════════════════════════════════════════════════════════════════════════
 
-function switchToTab(tabKey: string, opts: { scrollTop?: boolean } = {}) {
+export function switchToTab(tabKey: string, opts: { scrollTop?: boolean } = {}) {
   const prevTab = (document.querySelector(".tab.active") as HTMLElement | null)?.dataset.tab;
   if (prevTab === "simulate" && tabKey !== "simulate") {
     state.simScrollY = window.scrollY;
@@ -46,7 +56,7 @@ function switchToTab(tabKey: string, opts: { scrollTop?: boolean } = {}) {
   }
 }
 
-function scrollSimTabToTop() {
+export function scrollSimTabToTop() {
   state.simScrollY = 0;
   const target = document.getElementById("sim-results-top") || document.getElementById("sim-results");
   const tab = document.getElementById("tab-simulate");
@@ -61,7 +71,7 @@ function scrollSimTabToTop() {
   requestAnimationFrame(() => requestAnimationFrame(scroll));
 }
 
-function refreshCumulativePnlChart() {
+export function refreshCumulativePnlChart() {
   const trades = getJournalTradesForChart();
   if (!(state.tradeHistory as any)?.trades?.length) return;
   const container = document.getElementById("history-chart-container");
@@ -69,7 +79,7 @@ function refreshCumulativePnlChart() {
   drawCumulativePnlChart(trades);
 }
 
-function drawCumulativePnlChart(trades) {
+export function drawCumulativePnlChart(trades) {
   const canvas = document.getElementById("chart-cumulative-pnl");
   if (!canvas) return;
   const series = buildJournalDailyPnlSeries(trades);
@@ -166,7 +176,7 @@ function drawCumulativePnlChart(trades) {
   };
 }
 
-function setupSimNavScrollSpy() {
+export function setupSimNavScrollSpy() {
   if (simNavObserver) { simNavObserver.disconnect(); simNavObserver = null; }
   const nav = document.getElementById("sim-ticker-nav");
   if (!nav) return;

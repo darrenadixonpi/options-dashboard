@@ -1,12 +1,12 @@
-function parseCSVLine(line) {
+export function parseCSVLine(line) {
   const r = []; let cur = "", inQ = false;
   for (let i = 0; i < line.length; i++) { const c = line[i]; if (c === '"') inQ = !inQ; else if (c === "," && !inQ) { r.push(cur); cur = ""; } else cur += c; }
   r.push(cur); return r;
 }
-function parseMoney(s) { return s ? parseFloat(s.replace(/[$,\s]/g, "")) || 0 : 0; }
+export function parseMoney(s) { return s ? parseFloat(s.replace(/[$,\s]/g, "")) || 0 : 0; }
 
-const OCC_RE = /^-?\s*([A-Z]+)(\d{6})([CP])(\d+(?:\.\d+)?)$/i;
-function parseOCC(sym) {
+export const OCC_RE = /^-?\s*([A-Z]+)(\d{6})([CP])(\d+(?:\.\d+)?)$/i;
+export function parseOCC(sym) {
   const m = sym.trim().replace(/^[\s-]+/, "").match(OCC_RE);
   if (!m) return null;
   const ds = m[2];
@@ -18,7 +18,7 @@ function parseOCC(sym) {
   return { ticker: m[1].toUpperCase(), expiry: new Date(2000+parseInt(ds.slice(0,2)), parseInt(ds.slice(2,4))-1, parseInt(ds.slice(4,6))), optType: m[3].toUpperCase()==="P"?"Put":"Call", strike: strike };
 }
 
-function findCsvHeaderRow(lines, required) {
+export function findCsvHeaderRow(lines, required) {
   for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const lo = (lines[i] || "").toLowerCase();
     if (!lo.includes(",")) continue;
@@ -27,7 +27,7 @@ function findCsvHeaderRow(lines, required) {
   return -1;
 }
 
-function headerColIndex(headers, ...names) {
+export function headerColIndex(headers, ...names) {
   for (const name of names) {
     const n = name.toLowerCase();
     const idx = headers.findIndex(h => h === n || h.includes(n));
@@ -36,7 +36,7 @@ function headerColIndex(headers, ...names) {
   return -1;
 }
 
-function parseOptionFromSchwab(sym, desc) {
+export function parseOptionFromSchwab(sym, desc) {
   const normSym = (sym || "").replace(/\s+/g, "");
   let p = parseOCC(normSym);
   if (p) return p;
@@ -58,7 +58,7 @@ function parseOptionFromSchwab(sym, desc) {
   return null;
 }
 
-function parseOptionFromIBKR(sym, desc, expiryStr, strikeStr, rightStr) {
+export function parseOptionFromIBKR(sym, desc, expiryStr, strikeStr, rightStr) {
   if (sym) {
     const norm = sym.replace(/\s+/g, "");
     const p = parseOCC(norm);
@@ -87,7 +87,7 @@ function parseOptionFromIBKR(sym, desc, expiryStr, strikeStr, rightStr) {
   return null;
 }
 
-function detectFormat(text) {
+export function detectFormat(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   for (const line of lines.slice(0, 12)) {
     const lo = (line || "").toLowerCase();
@@ -100,7 +100,7 @@ function detectFormat(text) {
   return "unknown";
 }
 
-function detectHistoryFormat(text) {
+export function detectHistoryFormat(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   for (const line of lines.slice(0, 15)) {
     const lo = (line || "").toLowerCase();
@@ -113,14 +113,14 @@ function detectHistoryFormat(text) {
   return "unknown";
 }
 
-function ibkrExpiryToYymmdd(expiryStr) {
+export function ibkrExpiryToYymmdd(expiryStr) {
   const d = (expiryStr || "").trim().split(" ")[0].replace(/\//g, "-");
   if (/^\d{8}$/.test(d)) return d.slice(2);
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[1].slice(2)}${m[2]}${m[3]}` : null;
 }
 
-function ibkrBuildOccKey(sym, desc, expiry, strike, right) {
+export function ibkrBuildOccKey(sym, desc, expiry, strike, right) {
   const norm = (sym || "").replace(/\s+/g, "").toLowerCase();
   const occNorm = norm.startsWith("-") ? norm : (/\d{6}[pc]\d/i.test(norm) ? `-${norm}` : norm);
   if (parseOCC(occNorm)) return occNorm.replace(/^-/, "");
@@ -145,13 +145,13 @@ function ibkrBuildOccKey(sym, desc, expiry, strike, right) {
   return `${ticker.toLowerCase()}${yymmdd}${pc}${String(strikeRaw).padStart(8, "0")}`;
 }
 
-function ibkrCodeIsOpen(code) {
+export function ibkrCodeIsOpen(code) {
   const c = (code || "").toUpperCase();
   const parts = c.split(/[;,|/]/);
   return parts.some(p => p === "O" || p.startsWith("OPEN")) || c === "O";
 }
 
-function ibkrCodeIsClose(code) {
+export function ibkrCodeIsClose(code) {
   const c = (code || "").toUpperCase();
   if (ibkrCodeIsOpen(c) && !c.includes("C")) return false;
   const parts = c.split(/[;,|/]/);
@@ -159,7 +159,7 @@ function ibkrCodeIsClose(code) {
     || /EXPIR|ASSIGN/.test(c);
 }
 
-function parseIBKRHistoryRow(r, headers) {
+export function parseIBKRHistoryRow(r, headers) {
   const dateIdx = headerColIndex(headers, "tradedate", "date/time", "date", "trade date");
   const symIdx = headerColIndex(headers, "symbol");
   const qtyIdx = headerColIndex(headers, "quantity", "qty");
@@ -205,7 +205,7 @@ function parseIBKRHistoryRow(r, headers) {
   return { date: dt, ticker: p.ticker, expiry: p.expiry, strike: p.strike, optType: p.optType, quantity: qty, price };
 }
 
-function parseSchwabPositions(text) {
+export function parseSchwabPositions(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   const hdrIdx = findCsvHeaderRow(lines, ["symbol", "quantity"]);
   if (hdrIdx < 0) return [];
@@ -238,7 +238,7 @@ function parseSchwabPositions(text) {
   return pos;
 }
 
-function parseIBKRPositions(text) {
+export function parseIBKRPositions(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   const hdrIdx = findCsvHeaderRow(lines, ["symbol", "quantity"]);
   if (hdrIdx < 0) return [];
@@ -278,7 +278,7 @@ function parseIBKRPositions(text) {
   return pos;
 }
 
-function parseFidelityRaw(text) {
+export function parseFidelityRaw(text) {
   const lines = text.replace(/^\uFEFF/,"").replace(/\r/g,"").split("\n"), pos = [];
   for (let i=1;i<lines.length;i++) {
     const r=parseCSVLine(lines[i]); if(r.length<=2) continue;
@@ -301,7 +301,7 @@ function parseFidelityRaw(text) {
   return pos;
 }
 
-function parsePreprocessed(text) {
+export function parsePreprocessed(text) {
   const lines=text.replace(/^\uFEFF/,"").replace(/\r/g,"").split("\n"), pos=[]; let curExp="",hdr=false;
   const MO={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
   for(const line of lines){const r=parseCSVLine(line);if(r.length<11)continue;
@@ -315,7 +315,7 @@ function parsePreprocessed(text) {
   return pos;
 }
 
-function parseFidelityHistory(text) {
+export function parseFidelityHistory(text) {
   const lines=text.replace(/^\uFEFF/,"").replace(/\r/g,"").split("\n"), fills=[];
   for(const line of lines){const r=parseCSVLine(line);if(r.length<8)continue;
     const ds=r[0]?.trim();if(!ds||!/^\d/.test(ds))continue;
@@ -326,7 +326,7 @@ function parseFidelityHistory(text) {
   return fills;
 }
 
-function parseSchwabHistory(text) {
+export function parseSchwabHistory(text) {
   // Schwab format: Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount
   // Options appear as "Sell to Open" or "Buy to Open" in Action
   // Symbol might be like "CCCC  260515P00003000" (OCC format with spaces/padding) or plain ticker
@@ -350,7 +350,7 @@ function parseSchwabHistory(text) {
   return fills;
 }
 
-function parseIBKRHistory(text) {
+export function parseIBKRHistory(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   const hdrIdx = findCsvHeaderRow(lines, ["symbol", "quantity"]);
   if (hdrIdx < 0) return [];
@@ -364,7 +364,7 @@ function parseIBKRHistory(text) {
   return fills;
 }
 
-function parseHistory(text) {
+export function parseHistory(text) {
   const fmt = detectHistoryFormat(text);
   if (fmt === "schwab") return parseSchwabHistory(text);
   if (fmt === "ibkr") return parseIBKRHistory(text);
@@ -376,7 +376,7 @@ function parseHistory(text) {
   return parseIBKRHistory(text);
 }
 
-function parsePositions(text) {
+export function parsePositions(text) {
   const fmt = detectFormat(text);
   if (fmt === "fidelity_raw") return { positions: parseFidelityRaw(text), format: "fidelity_raw" };
   if (fmt === "preprocessed") return { positions: parsePreprocessed(text), format: "preprocessed" };
@@ -394,7 +394,7 @@ function parsePositions(text) {
   return { positions: [], format: fmt, hint: formatParseHint(fmt) };
 }
 
-function formatParseHint(format, broker) {
+export function formatParseHint(format, broker?) {
   const hints = {
     fidelity_raw: "Expected Fidelity Positions CSV (Account Number / Average Cost Basis header).",
     preprocessed: "Expected preprocessed CSV with Expiry + Ticker columns.",
@@ -406,7 +406,7 @@ function formatParseHint(format, broker) {
   return (hints[format] || hints.unknown) + b;
 }
 
-function occKeyFromOption(p) {
+export function occKeyFromOption(p) {
   // Canonical key matching filterClosedPositions: -tickeryymmdd{p|c}strike
   const exp = p.expiry;
   const yy = String(exp.getFullYear()).slice(2).padStart(2, "0");
@@ -417,7 +417,7 @@ function occKeyFromOption(p) {
   return `-${p.ticker.toLowerCase()}${yy}${mm}${dd}${pc}${strike}`;
 }
 
-function buildHistoryNetQty(histText) {
+export function buildHistoryNetQty(histText) {
   const netQty = {};
   if (!histText?.trim()) return netQty;
   const fmt = detectHistoryFormat(histText);
@@ -483,7 +483,7 @@ function buildHistoryNetQty(histText) {
   return netQty;
 }
 
-function filterClosedPositions(positions, histText) {
+export function filterClosedPositions(positions, histText) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
