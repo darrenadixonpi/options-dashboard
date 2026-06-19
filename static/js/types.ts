@@ -179,7 +179,6 @@ declare global {
     shares?: number;
     avgCost?: number;
     adjCost?: number | null;
-    totalPremium?: number;
     [key: string]: unknown;
   }
 
@@ -208,7 +207,7 @@ declare global {
   let autoRefreshTimer: ReturnType<typeof setInterval> | null;
 
   // ─── Global state + chart registry ───────────────────────────────────────
-  const state: AppState & { _journalGroupExpanded?: Record<string, boolean> };
+  const state: AppState & { _journalGroupExpanded?: Record<string, boolean>; _volSurfaceData?: any; bookRisk?: any };
   const chartInstances: Record<string, ChartHandle>;
 
   // ─── Tab / UI navigation ──────────────────────────────────────────────────
@@ -261,6 +260,10 @@ declare global {
   function getFilteredJournalTrades(): Record<string, unknown>[];
   function getJournalTradesForChart(): Record<string, unknown>[];
   function buildJournalDailyPnlSeries(trades: Record<string, unknown>[]): Record<string, unknown>[];
+  function getJournalStatsForView(): any;
+  function getJournalTradesForStrategyFilter(): Record<string, unknown>[];
+  function loadBookRiskMetrics(): Promise<void>;
+  function drawCumulativePnlChart(trades: Record<string, unknown>[]): void;
 
   // ─── Simulation ──────────────────────────────────────────────────────────
   function setupSimNavScrollSpy(): void;

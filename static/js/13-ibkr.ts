@@ -2,15 +2,15 @@
 // Token-based positions sync. Config is saved server-side to a local gitignored
 // file (POST /api/ibkr/config), so users never edit .env. Mirrors the Schwab panel.
 (function () {
-  async function ibkrFetch(url, opts) {
+  async function ibkrFetch(url: string, opts?: RequestInit): Promise<{ ok: boolean; data: any }> {
     if (typeof fetchJson === "function") return fetchJson(url, opts);
     const res = await fetch(url, opts);
-    let data = null;
+    let data: any = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
     return { ok: res.ok, data };
   }
 
-  async function checkIBKRStatus() {
+  async function checkIBKRStatus(): Promise<void> {
     const panel = document.getElementById("ibkr-api-panel");
     if (!panel) return;
     const { ok, data } = await ibkrFetch("/api/ibkr/status");
@@ -35,9 +35,9 @@
     }
   }
 
-  async function ibkrSaveConfig() {
-    const tokenEl = document.getElementById("ibkr-token");
-    const queryEl = document.getElementById("ibkr-query-id");
+  async function ibkrSaveConfig(): Promise<void> {
+    const tokenEl = document.getElementById("ibkr-token") as HTMLInputElement | null;
+    const queryEl = document.getElementById("ibkr-query-id") as HTMLInputElement | null;
     const errEl = document.getElementById("ibkr-config-error");
     const token = tokenEl && tokenEl.value.trim();
     const queryId = queryEl && queryEl.value.trim();
@@ -46,7 +46,7 @@
       return;
     }
     if (errEl) errEl.style.display = "none";
-    const btn = document.getElementById("btn-ibkr-save");
+    const btn = document.getElementById("btn-ibkr-save") as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
     try {
       const { ok, data } = await ibkrFetch("/api/ibkr/config", {
@@ -65,8 +65,8 @@
     }
   }
 
-  async function ibkrSync() {
-    const btn = document.getElementById("btn-ibkr-sync");
+  async function ibkrSync(): Promise<void> {
+    const btn = document.getElementById("btn-ibkr-sync") as HTMLButtonElement | null;
     const statusEl = document.getElementById("ibkr-sync-status");
     if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
     if (statusEl) statusEl.textContent = "";
@@ -82,7 +82,7 @@
         return;
       }
       // Load positions into state exactly as a CSV parse would.
-      state.positions = positions.map((p) => ({ ...p, expiry: p.expiry ? new Date(p.expiry) : null }));
+      state.positions = positions.map((p: any) => ({ ...p, expiry: p.expiry ? new Date(p.expiry) : null }));
       state.rawPosTexts = ["__ibkr_api__"]; // sentinel so the Fetch button enables
       state.format = "ibkr_flex";
       if (typeof updateFetchButtonState === "function") updateFetchButtonState();
@@ -103,7 +103,7 @@
     }
   }
 
-  async function ibkrDisconnect() {
+  async function ibkrDisconnect(): Promise<void> {
     if (!confirm("Disconnect IBKR and delete the saved Flex token?")) return;
     await ibkrFetch("/api/ibkr/disconnect", { method: "POST" });
     await checkIBKRStatus();
@@ -116,7 +116,7 @@
   // Refresh status when the IBKR broker tab is selected.
   document.querySelectorAll(".broker-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      if (btn.dataset.broker === "ibkr") checkIBKRStatus();
+      if ((btn as HTMLElement).dataset.broker === "ibkr") checkIBKRStatus();
     });
   });
 

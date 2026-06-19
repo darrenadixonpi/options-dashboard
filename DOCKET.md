@@ -12,7 +12,9 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 |-------|--------|-----|
 | **Schwab API registration** | In progress — waiting for developer app **Ready for Use** | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | **Schwab API activation** | ⏳ **Blocked on credentials** — code is fully built (Phase 6). Once app is *Ready for Use*: add `SCHWAB_CLIENT_ID` + `SCHWAB_CLIENT_SECRET` to `.env`, restart server, click **Schwab → Connect Schwab Account** in the import drawer. | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
-| **Schwab live CSV validation** | Deferred — user chose API-first path | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 4 |
+| **Schwab CSV import** | ✅ Validated on real positions + transaction exports (parser hardened this session); live API path still pending credentials | [docs/SCHWAB_API.md](docs/SCHWAB_API.md) § Part 4 |
+| **Multi-broker history (Fidelity + Schwab)** | ✅ Shipped (unreleased) — one continuous journal across brokers, cross-broker round-trip pairing | [CHANGELOG.md](CHANGELOG.md) |
+| **Realized-P&L correctness pass** | ✅ Shipped (unreleased) — cost-basis, tax-lot, simulation, break-even, and journal-reconciliation fixes (see below) | [CHANGELOG.md](CHANGELOG.md) |
 | **IBKR Flex Web Service** | ✅ Shipped (unreleased) — Flex client + adapter sync + in-app panel; pending live-token validation | [docs/IBKR_API.md](docs/IBKR_API.md) |
 
 ---
@@ -30,7 +32,7 @@ Living **roadmap and backlog** for this project. For math/architecture, see [TEC
 | GitHub CI (`.github/workflows/ci.yml`) | ✅ |
 | Release notes + version tag | ✅ `v1.1.0` tagged; `v1.2.0` notes ready, tag pending |
 | GitHub Releases page | ⏳ Optional — tag exists; draft release on GitHub UI if desired |
-| Schwab/IBKR **live** CSV validation | ⏳ Deferred (API-first for Schwab) |
+| Schwab/IBKR CSV validation | ✅ Schwab + Fidelity validated on real exports; IBKR fixture-tested (live token pending) |
 | Journal complex multi-day strategy labels | ⏳ Partial (same-day spreads OK) |
 
 ---
@@ -41,7 +43,7 @@ Pilot shipped in v1.1 (`05-session-api.ts`, `08-simulate.ts`). Full Phase 3 comp
 
 | Item | Status |
 |------|--------|
-| Convert remaining JS modules to TypeScript | ⏳ |
+| Convert remaining JS modules to TypeScript | ⏳ In progress — 7 done (`03-chart-utils`, `05-session-api`, `08-simulate`, `13-ibkr`, `09-risk`, `12-snapshots`, `10-journal`); ~9 JS modules remain |
 | Remove `@ts-nocheck` on pilot modules | ✅ Done — 0 errors (`typecheck:pilot`) |
 | Run `typecheck:pilot` in `prep_before_start.py` / CI parity | ⏳ (CI runs it; prep script does not) |
 | Full ES modules / drop global script concat | ⏳ Backlog |
@@ -94,13 +96,29 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 
 ---
 
+## Shipped (unreleased) — realized-P&L correctness pass
+
+Driven by validating real Fidelity + Schwab exports. Full detail in [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+
+| Area | Scope |
+|------|-------|
+| **Multi-broker parsing** | Per-broker column detection (Schwab qty=col4 vs Fidelity col6); Schwab native option symbols + `Buy`/`Sell`/`Sell to Open` verbs; each history file parsed by its own format and merged; cross-broker round-trip pairing |
+| **Share cost basis** | Uses the broker-reported basis for the held lot (no more negative averages from all-time netting); positions cards show broker `Avg`, unrealized **Share P&L**, and a **Realized P&L** line (shares vs closed options) from the FIFO journal |
+| **Tax lots** | Fixed: stock trades no longer ×100-inflated; short-option sign no longer flipped; assigned-share P&L no longer double-counted; assignments presented as premium-adjusted **Stock** sales on 8949. Net realized reconciles to the journal |
+| **Simulation** | Short-option premium credited again (was zeroed once premium left the equity basis) |
+| **Break-evens** | Wheel/assignment break-evens credit the open short legs' premium again |
+| **Positions sort/filter** | Orphaned `main.js` (sort buttons, ticker filter, bg-refresh badge) added to `MODULE_ORDER` + index — now loads |
+| **Tests** | New `tests/test_tax_lots.py` (8 cases) locking in the tax-lot fixes |
+
+---
+
 ## Next up (post-1.2.0)
 
 | # | Item | Notes |
 |---|------|--------|
 | 1 | **Activate Schwab API sync** | Code built (Phase 6); add `SCHWAB_CLIENT_ID`/`SCHWAB_CLIENT_SECRET` once the developer app is *Ready for Use* — [docs/SCHWAB_API.md](docs/SCHWAB_API.md) |
 | 2 | **TypeScript expansion** | Convert remaining JS modules to TS (see Phase 3 remainder checklist) |
-| 3 | **Schwab/IBKR live CSV smoke** | Validate against real broker exports → parser fixes |
+| 3 | **IBKR live-token validation** | Schwab + Fidelity CSV already validated on real exports; IBKR Flex still needs a live-token smoke run |
 | 4 | **Additional broker adapters** | Tastytrade / others via the `brokers/` `BrokerAdapter` interface (Schwab + IBKR are the templates) |
 | 5 | **GitHub Releases page** | Draft a release for the `v1.2.0` tag |
 
@@ -113,8 +131,8 @@ Target: **v1.2+** alongside or after Schwab API (see Next up).
 - Roll-aware P&L in attribution
 - Full ES modules / drop global script concat
 - Schwab Market Data product (broker quotes instead of Yahoo)
-- IBKR API integration
 - Auth / multi-user hosting (out of scope for local desk)
+- FIFO lot-level **8949 split for assignments** (currently one premium-adjusted Stock line per assignment; per-lot date detail is a future refinement)
 
 ---
 
@@ -171,4 +189,4 @@ Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm
 
 ---
 
-*Last updated: 2026-06-13 (v1.2.0 release cut — Phases 4–7 consolidated; Schwab API client built, pending credential activation)*
+*Last updated: 2026-06-19 (unreleased realized-P&L correctness pass — multi-broker parsing, cost basis, tax lots, simulation, break-evens, sort/filter; validated on real Fidelity + Schwab exports)*

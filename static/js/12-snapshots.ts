@@ -31,7 +31,7 @@ async function loadSnapshotHistoryUI() {
     renderFetchSessions(sessRes.data?.sessions || [], bookRes.data);
     populateSnapshotDiffSelects(snapshotAttributionCache);
 
-    const sel = document.getElementById("snapshot-ticker-select");
+    const sel = document.getElementById("snapshot-ticker-select") as HTMLSelectElement | null;
     if (sel && state.positions.length) {
       const tickers = [...new Set(state.positions.map(p => p.ticker))].sort();
       const cur = sel.value;
@@ -54,8 +54,8 @@ function snapshotLabel(s) {
 }
 
 function populateSnapshotDiffSelects(snapshots) {
-  const selA = document.getElementById("snapshot-diff-a");
-  const selB = document.getElementById("snapshot-diff-b");
+  const selA = document.getElementById("snapshot-diff-a") as HTMLSelectElement | null;
+  const selB = document.getElementById("snapshot-diff-b") as HTMLSelectElement | null;
   const result = document.getElementById("snapshot-diff-result");
   if (!selA || !selB) return;
   if (!snapshots.length) {
@@ -76,8 +76,8 @@ function populateSnapshotDiffSelects(snapshots) {
 
 async function runSnapshotDiff() {
   const result = document.getElementById("snapshot-diff-result");
-  const idA = parseInt(document.getElementById("snapshot-diff-a")?.value, 10);
-  const idB = parseInt(document.getElementById("snapshot-diff-b")?.value, 10);
+  const idA = parseInt((document.getElementById("snapshot-diff-a") as HTMLSelectElement | null)?.value ?? "", 10);
+  const idB = parseInt((document.getElementById("snapshot-diff-b") as HTMLSelectElement | null)?.value ?? "", 10);
   if (!result || !idA || !idB) return;
   if (idA === idB) {
     result.innerHTML = '<span style="color:var(--warn-tx)">Pick two different snapshots.</span>';
@@ -259,7 +259,7 @@ async function loadTickerSnapshotHistory(ticker) {
 }
 
 document.getElementById("snapshot-ticker-select")?.addEventListener("change", (e) => {
-  loadTickerSnapshotHistory(e.target.value);
+  loadTickerSnapshotHistory((e.target as HTMLSelectElement).value);
 });
 
 document.getElementById("btn-refresh-snapshots")?.addEventListener("click", () => loadSnapshotHistoryUI());
