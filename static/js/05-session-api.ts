@@ -550,29 +550,38 @@ export function restoreSession() {
       document.getElementById("session-restore-text").textContent =
         `Restored import from ${when}${data.fetchedAt ? " · live data cached" : ""}`;
     }
-    if (state.portfolio && state.marketData) {
-      renderPortfolio(state.portfolio, true);
-      updateProvenanceBar();
-      enableSimButton();
-      enableRiskTab();
-      document.getElementById("ready-banner").hidden = false;
-      document.getElementById("ready-text").textContent = state.fetchedAt ? "Dashboard restored (cached data)" : "CSV restored — click Fetch to refresh prices";
-      document.getElementById("ready-sub").textContent = `${state.portfolio.totalPositions} positions · ${state.portfolio.uniqueTickers} tickers`;
+    if (state.portfolio) {
+      // Render the restored book whether or not live market data was cached.
+      // Without marketData the cards show avg-cost (no live ITM/OTM), matching
+      // the import flow. Previously this was gated on state.marketData, so a
+      // session saved without marks — or one where a localStorage quota trim
+      // dropped marketData — left the positions blank until a manual Fetch.
+      renderPortfolio(state.portfolio, !!state.marketData);
       if (state.tradeHistory) renderTradeHistory(state.tradeHistory);
-      if (state.attribution) renderAttribution(state.attribution, state.prevSnapshot?.at);
       populateWhatIfTickers();
       renderWhatIfList();
-      if (state.hypothetical.length) applyWhatIfGreeks();
-      updateMarksStaleLabel();
-      setupAutoRefreshControls();
-      if (state.simResult && state.simDone) {
-        renderSimResults(state.simResult);
-      } else if (data.simNeedsRerun && state.positions.length) {
-        const simBtn = document.getElementById("btn-simulate");
-        const logEl = document.getElementById("sim-log") || document.getElementById("sim-log-inline");
-        if (simBtn && logEl) {
-          logEl.textContent = "Re-running saved simulation…";
-          runSimulation(simBtn, logEl);
+      document.getElementById("ready-banner").hidden = false;
+      document.getElementById("ready-text").textContent = state.marketData
+        ? (state.fetchedAt ? "Dashboard restored (cached data)" : "CSV restored — click Fetch to refresh prices")
+        : "CSV restored — click Fetch to load live prices, Greeks & simulation";
+      document.getElementById("ready-sub").textContent = `${state.portfolio.totalPositions} positions · ${state.portfolio.uniqueTickers} tickers`;
+      if (state.marketData) {
+        updateProvenanceBar();
+        enableSimButton();
+        enableRiskTab();
+        if (state.attribution) renderAttribution(state.attribution, state.prevSnapshot?.at);
+        if (state.hypothetical.length) applyWhatIfGreeks();
+        updateMarksStaleLabel();
+        setupAutoRefreshControls();
+        if (state.simResult && state.simDone) {
+          renderSimResults(state.simResult);
+        } else if (data.simNeedsRerun && state.positions.length) {
+          const simBtn = document.getElementById("btn-simulate");
+          const logEl = document.getElementById("sim-log") || document.getElementById("sim-log-inline");
+          if (simBtn && logEl) {
+            logEl.textContent = "Re-running saved simulation…";
+            runSimulation(simBtn, logEl);
+          }
         }
       }
     }

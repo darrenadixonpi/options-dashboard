@@ -390,7 +390,7 @@ class TestTradeHistoryApi:
         res = client.get("/api/version")
         assert res.status_code == 200
         data = res.get_json()
-        assert data.get("version") == "1.2.0"
+        assert data.get("version") == "1.3.0"
         assert data.get("name") == "options-dashboard"
 
 
@@ -526,7 +526,8 @@ class TestFrontendBundle:
         assert "03-chart-utils.js" in order
         assert "12-snapshots.js" in order
         assert "10-phase7.js" in order
-        assert len(order) == 16
+        assert "14-greeks-lab.js" in order
+        assert len(order) == 17
 
     def test_render_script_block_is_bundle(self):
         mod = self._load_frontend_scripts()

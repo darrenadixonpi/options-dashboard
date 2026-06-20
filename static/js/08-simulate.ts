@@ -1,6 +1,6 @@
 import { dateKey } from "./02-portfolio";
 import { buildHorizontalLineAnnotations, chartInteractionDefaults, deepMergeChartOpts, estimatePathChartYRange } from "./03-chart-utils";
-import { renderPortfolio } from "./03-render";
+import { effBasisOn, effectiveBasisFor, renderPortfolio } from "./03-render";
 import { chartExportBtn, chartInstances, destroyChart, refreshDeskAlerts, state } from "./04-state";
 import { fetchJson, saveSession, updateProvenanceBar } from "./05-session-api";
 import { setupSimNavScrollSpy, switchToTab } from "./07-tabs";
@@ -32,12 +32,24 @@ export async function runSimulation(btn, logEl) {
   allBtns.forEach(b => b.disabled = true);
 
   try {
-    const payload = state.positions.map(p => ({
-      ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry instanceof Date ? p.expiry : new Date(p.expiry as string)) : null, strike: p.strike,
-      optType: p.optType, contracts: p.contracts, avgCost: p.avgCost || 0,
-      adjCost: p.adjCost || null,
-      posType: p.posType || "option", shares: p.shares || 0,
-    }));
+    // When the Effective-basis toggle is on, feed the premium-adjusted share basis into the
+    // sim via adjCost (the backend uses adjCost||avgCost for equity P&L). Option legs keep
+    // their own avgCost, and the realized premium that lowers the basis excludes open legs —
+    // so there is no double-count with the option legs the sim already models.
+    const useEff = effBasisOn();
+    const payload = state.positions.map(p => {
+      let adjCost = p.adjCost || null;
+      if (useEff && (p.posType === "equity") && (p.contracts || 0) > 0) {
+        const e = effectiveBasisFor(p.ticker, p.avgCost || 0, Math.abs(p.contracts || p.shares || 0));
+        if (e) adjCost = e.effAvg;
+      }
+      return {
+        ticker: p.ticker, expiry: p.expiry ? dateKey(p.expiry instanceof Date ? p.expiry : new Date(p.expiry as string)) : null, strike: p.strike,
+        optType: p.optType, contracts: p.contracts, avgCost: p.avgCost || 0,
+        adjCost,
+        posType: p.posType || "option", shares: p.shares || 0,
+      };
+    });
     const { ok, data } = await fetchJson("/api/simulate", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ positions: payload, n_paths: 10000 }),

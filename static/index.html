@@ -279,6 +279,13 @@
         <button class="pos-sort-btn" data-sort="delta" type="button">|Δ|</button>
         <button class="pos-sort-btn" data-sort="iv" type="button">IV</button>
       </div>
+      <label style="display:inline-flex;align-items:center;gap:5px;margin-left:auto;font-size:11px;color:var(--tx2);font-family:var(--mono);cursor:pointer" title="Reduce each long-share cost basis by realized option premium collected on that name (economic 'wheel' basis — NOT your tax basis). Updates cards now; the simulation uses it on its next run.">
+        <input type="checkbox" id="toggle-eff-basis"> Effective basis
+      </label>
+      <span id="effbasis-mode" style="display:inline-flex;gap:3px;align-items:center;margin-left:6px" title="Premium scope for effective basis">
+        <button type="button" class="btn btn-sm effmode-btn" data-effmode="all" style="padding:2px 7px;font-size:10px" title="Subtract all realized option premium ever collected on the name">All</button>
+        <button type="button" class="btn btn-sm btn-ghost effmode-btn" data-effmode="lot" style="padding:2px 7px;font-size:10px" title="Subtract only premium realized since the current share lot opened (the assigning put included)">Since lot</button>
+      </span>
     </div>
     <div class="positions-layout" id="positions-layout">
       <div id="positions-book-col">
@@ -517,6 +524,56 @@
         <div style="font-size:10px;color:var(--tx3);margin-bottom:8px" id="risk-matrix-caption">Theoretical BS P&amp;L vs entry cost (avg fill), not broker MTM. IV shocks are absolute vol points.</div>
         <div id="risk-matrix-body"></div>
       </div>
+      <!-- Tier-2: Exposure & concentration -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="exposure-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Exposure &amp; concentration</div>
+          <div style="font-size:10px;color:var(--tx3)">Dollar greeks from the live book · concentration on |$&Delta;|</div>
+        </div>
+        <div class="summary" id="exposure-stats" style="margin-bottom:14px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <div class="chart-hdr-title" style="font-size:11px;margin-bottom:6px">Net $&Delta; by ticker</div>
+            <div id="exposure-ticker-table" style="max-height:260px;overflow-y:auto"></div>
+          </div>
+          <div>
+            <div class="chart-hdr-title" style="font-size:11px;margin-bottom:6px">Vega by expiry bucket (DTE)</div>
+            <div id="vega-ladder"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Tier-2: Expiration / pin-risk calendar -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="expiry-calendar-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Expiration calendar &amp; pin risk</div>
+          <div style="font-size:10px;color:var(--tx3)">Gamma / notional clustering by expiry · pin = &le;10 DTE within 3% of a strike</div>
+        </div>
+        <div id="expiry-calendar-body" style="max-height:360px;overflow-y:auto"></div>
+      </div>
+      <!-- Tier-3: Implied vs realized vol -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="vol-comparison-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Implied vs realized vol</div>
+          <div style="font-size:10px;color:var(--tx3)">IV − 20d realized = variance risk premium · rich = options expensive to own</div>
+        </div>
+        <div id="vol-comparison-body" style="max-height:320px;overflow-y:auto"></div>
+      </div>
+      <!-- Tier-3: Sector exposure -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="sector-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Sector exposure</div>
+          <div style="font-size:10px;color:var(--tx3)" id="sector-meta"></div>
+        </div>
+        <div id="sector-body"></div>
+      </div>
+      <!-- Tier-3: Benchmark vs SPY -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="benchmark-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Benchmark vs SPY</div>
+          <div style="font-size:10px;color:var(--tx3)">Returns-based on tracked book snapshots · position changes add noise</div>
+        </div>
+        <div class="summary" id="benchmark-stats"></div>
+      </div>
       <!-- Unusual Activity (#17) -->
       <div class="outer" style="padding:20px;margin-top:20px" id="unusual-section" hidden>
         <div style="font-weight:500;font-size:14px;margin-bottom:12px">Unusual Options Activity</div>
@@ -641,6 +698,14 @@
             <div id="snapshot-greek-chart-wrap"></div>
           </div>
         </div>
+        <div style="margin-bottom:16px">
+          <div class="chart-hdr" style="margin-bottom:6px">
+            <div class="chart-hdr-title" style="font-size:11px">Cumulative attribution (price · Γ · Θ · V)</div>
+            <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-attr-cumulative" data-export-name="snapshot-attr-cumulative" title="Export PNG">PNG</button>
+          </div>
+          <div id="snapshot-attr-cumulative-wrap"></div>
+          <div id="snapshot-attr-cumulative-note" style="font-size:10px;color:var(--tx3);margin-top:4px"></div>
+        </div>
         <div style="margin-bottom:16px" id="snapshot-diff-section">
           <div style="font-size:11px;font-weight:500;margin-bottom:6px">Snapshot diff</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;font-family:var(--mono);font-size:11px">
@@ -675,6 +740,36 @@
         <canvas id="chart-cumulative-pnl" height="200"></canvas>
       </div>
 
+      <div class="outer" style="padding:20px;margin-top:20px" id="drawdown-section" hidden>
+        <div class="chart-hdr" style="margin-bottom:4px">
+          <div>
+            <div class="chart-hdr-title">Drawdown (realized equity curve)</div>
+            <div class="chart-hdr-meta" style="margin-top:4px">Peak-to-trough on cumulative realized P&amp;L across all loaded history. % is vs the prior positive peak.</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-canvas="chart-drawdown" data-export-name="journal-drawdown" title="Export PNG">PNG</button>
+        </div>
+        <div class="summary" id="drawdown-stats" style="margin-bottom:12px"></div>
+        <canvas id="chart-drawdown" height="150"></canvas>
+      </div>
+
+      <div class="outer" style="padding:20px;margin-top:20px" id="cohorts-section" hidden>
+        <div class="chart-hdr" style="margin-bottom:10px">
+          <div>
+            <div class="chart-hdr-title">Performance cohorts</div>
+            <div class="chart-hdr-meta" style="margin-top:4px">Realized stats sliced by dimension (leg-level win rate), across all loaded history.</div>
+          </div>
+        </div>
+        <div class="toolbar-row" id="cohort-dim-toggle" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-sm cohort-dim-btn" data-cohort-dim="byUnderlying">Underlying</button>
+          <button type="button" class="btn btn-sm btn-ghost cohort-dim-btn" data-cohort-dim="byStrategy">Strategy</button>
+          <button type="button" class="btn btn-sm btn-ghost cohort-dim-btn" data-cohort-dim="byHoldBucket">Hold</button>
+          <button type="button" class="btn btn-sm btn-ghost cohort-dim-btn" data-cohort-dim="byDteAtEntry">DTE at entry</button>
+          <button type="button" class="btn btn-sm btn-ghost cohort-dim-btn" data-cohort-dim="byMonth">Month</button>
+          <button type="button" class="btn btn-sm btn-ghost cohort-dim-btn" data-cohort-dim="byWeekday">Weekday</button>
+        </div>
+        <div id="cohorts-table-container"></div>
+      </div>
+
       <!-- Phase 7.5: Tax Lots -->
       <div class="outer" style="padding:20px;margin-top:20px" id="tax-lots-section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -701,6 +796,15 @@
     <button class="modal-close" id="roll-modal-close">✕</button>
     <h3>Roll Analyzer</h3>
     <div id="roll-modal-body"></div>
+  </div>
+</div>
+
+<!-- Greeks Lab (#21) -->
+<div id="greeks-modal" hidden class="modal-overlay">
+  <div class="modal" style="min-width:min(680px,92vw)">
+    <button class="modal-close" id="greeks-modal-close">✕</button>
+    <h3>Greeks Lab</h3>
+    <div id="greeks-modal-body"></div>
   </div>
 </div>
 

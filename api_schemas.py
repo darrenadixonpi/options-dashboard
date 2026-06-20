@@ -99,6 +99,7 @@ class SimulateResponse(ApiModel):
     ticker_paths: dict[str, TickerPathData]
     theta: Optional[ThetaData] = None
     correlation: Optional[CorrelationInfo] = None
+    component_var: Optional[dict[str, Any]] = None
 
 
 class GreeksBundle(ApiModel):

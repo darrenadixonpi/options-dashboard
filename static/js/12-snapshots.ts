@@ -24,15 +24,21 @@ export async function loadSnapshotHistoryUI() {
   sessionsEl.innerHTML = "";
 
   try {
-    const [attrRes, timelineRes, sessRes, bookRes] = await Promise.all([
+    const [attrRes, timelineRes, sessRes, bookRes, attrCumRes] = await Promise.all([
       fetchJson("/api/snapshots/attribution?limit=30"),
       fetchJson("/api/snapshots/portfolio-timeline?limit=40"),
       fetchJson("/api/snapshots/sessions?limit=15"),
       fetchJson("/api/snapshots/book-timeline?limit=30"),
+      fetchJson("/api/snapshots/attribution-timeline?limit=60"),
     ]);
 
     snapshotAttributionCache = attrRes.data?.snapshots || [];
     renderAttributionTimeline(snapshotAttributionCache);
+    renderAttributionCumulative(
+      attrCumRes.data?.points || [],
+      attrCumRes.data?.residualAvailable,
+      attrCumRes.data?.residualNote,
+    );
     renderGreekTimeline(timelineRes.data?.points || []);
     renderFetchSessions(sessRes.data?.sessions || [], bookRes.data);
     populateSnapshotDiffSelects(snapshotAttributionCache);
@@ -166,6 +172,51 @@ export function renderAttributionTimeline(snapshots) {
       },
     }),
   });
+}
+
+export function renderAttributionCumulative(points, residualAvailable?, note?) {
+  const wrap = document.getElementById("snapshot-attr-cumulative-wrap");
+  const noteEl = document.getElementById("snapshot-attr-cumulative-note");
+  if (!wrap) return;
+  if (!points || !points.length) {
+    wrap.innerHTML = '<span style="color:var(--tx3);font-size:11px">No attribution snapshots yet — re-fetch twice to build the timeline.</span>';
+    if (noteEl) noteEl.textContent = "";
+    destroyChart("chart-attr-cumulative");
+    return;
+  }
+  const labels = points.map(p => {
+    try { return new Date(p.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+    catch { return p.timestamp; }
+  });
+  wrap.innerHTML = '<canvas id="chart-attr-cumulative" height="150"></canvas>';
+  destroyChart("chart-attr-cumulative");
+  const datasets: any[] = [
+    { label: "Σ Price", data: points.map(p => p.cumPrice), borderColor: "#90caf9", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+    { label: "Σ Γ", data: points.map(p => p.cumGamma), borderColor: "#ce93d8", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+    { label: "Σ Θ", data: points.map(p => p.cumTheta), borderColor: "#f5c518", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+    { label: "Σ Vega", data: points.map(p => p.cumVega), borderColor: "#4dd0e1", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+    { label: "Σ Total", data: points.map(p => p.cumTotal), borderColor: "#e8e8e4", borderWidth: 2.5, pointRadius: 0, tension: 0.2 },
+  ];
+  if (residualAvailable) {
+    datasets.push({ label: "Actual Δ book", data: points.map(p => (p.cumBookChange ?? null)), borderColor: "#9b9b96", borderDash: [5, 3], borderWidth: 1.5, pointRadius: 0, tension: 0.2 });
+  }
+  chartInstances["chart-attr-cumulative"] = new Chart(document.getElementById("chart-attr-cumulative"), {
+    type: "line",
+    data: { labels, datasets },
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: { display: true, position: "top", labels: { color: "#e8e8e4", font: { size: 9 }, boxWidth: 10 } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmtDollar(ctx.parsed.y)}` } },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { callback: v => fmtDollar(v), color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+      },
+    }),
+  });
+  if (noteEl) noteEl.textContent = residualAvailable ? (note || "") : "Residual vs actual book P&L needs ≥2 aligned book snapshots.";
 }
 
 export function renderGreekTimeline(points) {

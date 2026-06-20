@@ -1,5 +1,6 @@
 import { esc, normalizeStrategyLabel } from "./02-portfolio";
-import { findOpenLegKey, getFilteredJournalTrades, getJournalStatsForView, getJournalTradesForChart, getJournalTradesForStrategyFilter, journalTradePnl, jumpToLeg, loadBookRiskMetrics, state } from "./04-state";
+import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
+import { chartInstances, destroyChart, findOpenLegKey, getFilteredJournalTrades, getJournalStatsForView, getJournalTradesForChart, getJournalTradesForStrategyFilter, journalTradePnl, jumpToLeg, loadBookRiskMetrics, state } from "./04-state";
 import { drawCumulativePnlChart } from "./07-tabs";
 import { fmtDollar } from "./08-simulate";
 
@@ -285,12 +286,136 @@ export function renderTradeHistory(data) {
     });
   });
 
+  // Drawdown + cohorts always reflect the full loaded history (server stats),
+  // independent of the ticker/strategy filter applied to the table above.
+  renderDrawdownPanel((data.stats as any)?.drawdown);
+  renderCohorts((data.stats as any)?.cohorts);
+
   if (data.trades.length >= 1) {
     document.getElementById("history-chart-container").hidden = false;
     const histTab = document.getElementById("tab-history");
     if (histTab && !histTab.hidden) drawCumulativePnlChart(getJournalTradesForChart());
   }
 }
+
+// ─── Drawdown panel (realized equity curve) ──────────────────────────────────
+
+export function renderDrawdownPanel(dd: any) {
+  const section = document.getElementById("drawdown-section");
+  const statsEl = document.getElementById("drawdown-stats");
+  if (!section || !statsEl) return;
+  if (!dd) {
+    section.hidden = true;
+    destroyChart("chart-drawdown");
+    return;
+  }
+  section.hidden = false;
+  const pct = dd.maxDrawdownPct != null ? `${dd.maxDrawdownPct}% vs peak` : "vs peak n/a";
+  const recov = dd.stillUnderwater
+    ? `<span style="color:var(--warn-tx)">underwater</span>`
+    : (dd.daysToRecover != null ? `${dd.daysToRecover}d` : "—");
+  const rf = dd.recoveryFactor != null ? dd.recoveryFactor : "—";
+  const curSub = dd.currentDrawdownPct != null ? `${dd.currentDrawdownPct}%` : "";
+  statsEl.innerHTML = `
+    <div class="stat"><div class="stat-label" title="Largest peak-to-trough drop in cumulative realized P&L">Max Drawdown</div><div class="stat-val" style="color:var(--err-tx)">${fmtDollar(dd.maxDrawdown)}</div><div class="stat-sub">${esc(pct)}</div></div>
+    <div class="stat"><div class="stat-label" title="Net realized P&L ÷ max drawdown (unitless)">Recovery Factor</div><div class="stat-val">${rf}</div></div>
+    <div class="stat"><div class="stat-label" title="Drawdown from the current running peak">Current DD</div><div class="stat-val" style="color:${dd.currentDrawdown < 0 ? "var(--err-tx)" : "var(--ok-tx)"}">${fmtDollar(dd.currentDrawdown)}</div><div class="stat-sub">${esc(curSub)}</div></div>
+    <div class="stat"><div class="stat-label" title="Longest stretch below a prior peak (calendar days)">Longest Underwater</div><div class="stat-val">${dd.longestUnderwaterDays}d</div></div>
+    <div class="stat"><div class="stat-label" title="Calendar days from the pre-drawdown peak to full recovery">Time to Recover</div><div class="stat-val" style="font-size:16px">${recov}</div></div>`;
+
+  const canvas = document.getElementById("chart-drawdown");
+  destroyChart("chart-drawdown");
+  const uw = dd.underwater || [];
+  if (!canvas || !uw.length) return;
+  chartInstances["chart-drawdown"] = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: uw.map((u: any) => u.date),
+      datasets: [{
+        label: "Drawdown",
+        data: uw.map((u: any) => u.drawdown),
+        borderColor: "#ef5350",
+        backgroundColor: "rgba(239,83,80,0.15)",
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.1,
+      }],
+    },
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx: any) => `Drawdown: ${fmtDollar(uw[ctx.dataIndex].drawdown)}` } },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 10, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { callback: (v: any) => fmtDollar(v), color: "#9b9b96", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+      },
+    }),
+  });
+}
+
+// ─── Performance cohorts ─────────────────────────────────────────────────────
+
+let cohortDim = "byUnderlying";
+const COHORT_DIM_LABELS: Record<string, string> = {
+  byUnderlying: "Underlying",
+  byStrategy: "Strategy",
+  byHoldBucket: "Hold period",
+  byDteAtEntry: "DTE at entry",
+  byMonth: "Month",
+  byWeekday: "Weekday",
+};
+
+export function renderCohorts(cohorts: any) {
+  const section = document.getElementById("cohorts-section");
+  const container = document.getElementById("cohorts-table-container");
+  if (!section || !container) return;
+  if (!cohorts) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  if (!cohorts[cohortDim]?.length) {
+    const firstWith = Object.keys(COHORT_DIM_LABELS).find(d => cohorts[d]?.length);
+    if (firstWith) cohortDim = firstWith;
+  }
+  document.querySelectorAll("#cohort-dim-toggle .cohort-dim-btn").forEach(b => {
+    const dim = (b as HTMLElement).dataset.cohortDim || "";
+    const has = !!cohorts[dim]?.length;
+    const isActive = dim === cohortDim && has;
+    b.classList.toggle("btn-ghost", !isActive);
+    (b as HTMLButtonElement).disabled = !has;
+    (b as HTMLElement).style.opacity = has ? "" : "0.4";
+  });
+  container.innerHTML = _cohortTable(cohorts[cohortDim] || [], cohortDim);
+}
+
+function _cohortTable(rows: any[], dim: string): string {
+  if (!rows.length) return '<span style="color:var(--tx3);font-size:11px">No data for this dimension.</span>';
+  const keyHdr = COHORT_DIM_LABELS[dim] || "Group";
+  let html = '<table class="hist-tbl"><thead><tr>'
+    + `<th>${esc(keyHdr)}</th><th>Trades</th><th>Win%</th><th>Total P&L</th><th>Avg</th><th>PF</th><th>Avg Hold</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const pnlCol = r.totalPnl >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+    const winCol = r.winRate >= 50 ? "var(--ok-tx)" : "var(--err-tx)";
+    const pf = r.profitFactor >= 999 ? "∞" : r.profitFactor;
+    const hold = r.avgHoldDays != null ? `${r.avgHoldDays}d` : "—";
+    html += `<tr><td>${esc(String(r.key))}</td><td>${r.trades}</td><td style="color:${winCol}">${r.winRate}%</td><td style="color:${pnlCol};font-weight:500">${fmtDollar(r.totalPnl)}</td><td>${fmtDollar(r.avgPnl)}</td><td>${pf}</td><td>${hold}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  return html;
+}
+
+document.getElementById("cohort-dim-toggle")?.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("[data-cohort-dim]") as HTMLElement | null;
+  if (!btn || (btn as HTMLButtonElement).disabled) return;
+  cohortDim = btn.dataset.cohortDim || "byUnderlying";
+  renderCohorts((state.tradeHistory as any)?.stats?.cohorts);
+});
 
 // ─── Journal v2: group helpers ───────────────────────────────────────────────
 

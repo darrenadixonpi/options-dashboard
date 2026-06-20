@@ -102,6 +102,8 @@ export function enableRiskTab() {
       <div class="stat" style="border-left:3px solid var(--err-tx)"><div class="stat-label">Total Max Loss</div><div class="stat-val" style="font-size:18px;color:var(--err-tx)">$${r.totalMaxLoss.toLocaleString()}</div></div>
       <div class="stat" style="border-left:3px solid var(--warn-tx)"><div class="stat-label" title="Reg-T margin estimate: Short puts use min(naked formula, cash-secured). Covered calls need no extra margin. See hover for details.">Est. Margin</div><div class="stat-val" style="font-size:18px;color:var(--warn-tx)">$${r.totalMargin.toLocaleString()}</div><div style="font-size:9px;color:var(--tx3);margin-top:2px">Reg-T estimate</div></div>`;
   }
+
+  loadRiskExposure();
 }
 
 export async function loadRiskMatrix() {
@@ -141,6 +143,8 @@ export async function loadRiskMatrix() {
 
     const firstTicker = (document.getElementById("vol-surface-ticker") as HTMLSelectElement | null)?.value;
     if (firstTicker) loadVolSurface(firstTicker);
+    loadRiskExposure();
+    loadRiskFactors();
   } catch (e) {
     document.getElementById("risk-matrix-body").innerHTML = `<div class="error-box">${e.message}</div>`;
   }
@@ -300,4 +304,170 @@ document.querySelectorAll("#vol-type-selector .broker-btn").forEach(btn => {
     if (state._volSurfaceData) _renderVolSurfaceChart();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tier-2: Exposure & concentration + Expiration / pin-risk calendar
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function loadRiskExposure() {
+  const section = document.getElementById("exposure-section");
+  const calSection = document.getElementById("expiry-calendar-section");
+  const pg = (state.greeks as any)?.positions;
+  if (!pg?.length || !state.marketData) {
+    if (section) section.hidden = true;
+    if (calSection) calSection.hidden = true;
+    return;
+  }
+  try {
+    const { ok, data } = await fetchJson("/api/risk/exposure", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ positionGreeks: pg, marketData: state.marketData }),
+    });
+    if (!ok || data.error) return;
+    renderExposure(data.exposure);
+    renderExpiryCalendar(data.expiryCalendar);
+  } catch (e) { /* exposure is best-effort */ }
+}
+
+export function renderExposure(ex: any) {
+  const section = document.getElementById("exposure-section");
+  const statsEl = document.getElementById("exposure-stats");
+  if (!section || !statsEl) return;
+  if (!ex) { section.hidden = true; return; }
+  section.hidden = false;
+  const p = ex.portfolio || {};
+  const c = ex.concentration;
+  const ddCol = (p.dollarDelta || 0) >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+  statsEl.innerHTML = `
+    <div class="stat"><div class="stat-label" title="Net dollar delta — directional $ exposure. P&L per +1% move ≈ $Δ × 0.01">Net $Delta</div><div class="stat-val" style="color:${ddCol}">${fmtDollar(p.dollarDelta)}</div><div class="stat-sub">~${fmtDollar((p.dollarDelta || 0) * 0.01)}/+1%</div></div>
+    <div class="stat"><div class="stat-label" title="Change in $Delta for a +1% move in underlyings">$Gamma /+1%</div><div class="stat-val">${fmtDollar(p.dollarGamma1pct)}</div></div>
+    <div class="stat"><div class="stat-label">$Theta /day</div><div class="stat-val" style="color:${(p.theta || 0) >= 0 ? "var(--ok-tx)" : "var(--err-tx)"}">${fmtDollar(p.theta)}</div></div>
+    <div class="stat"><div class="stat-label">$Vega /vol-pt</div><div class="stat-val">${fmtDollar(p.vega)}</div></div>
+    ${c ? `
+    <div class="stat" style="border-left:3px solid var(--warn-tx)"><div class="stat-label" title="Herfindahl index on |$Δ|; effective independent names = 1/HHI">Concentration</div><div class="stat-val" style="font-size:16px">${c.effectiveNames ?? "—"}<span style="font-size:10px;color:var(--tx3)"> eff. names</span></div><div class="stat-sub">HHI ${c.hhi}</div></div>
+    <div class="stat"><div class="stat-label">Top name</div><div class="stat-val" style="font-size:16px">${esc(c.topName || "—")}</div><div class="stat-sub">${c.topNamePct ?? "—"}% · top3 ${c.top3Pct ?? "—"}%</div></div>` : ""}`;
+
+  const tEl = document.getElementById("exposure-ticker-table");
+  if (tEl) {
+    const rows = Object.entries(ex.byTicker || {}).sort((a: any, b: any) => Math.abs(b[1].dollarDelta) - Math.abs(a[1].dollarDelta));
+    let html = '<table class="hist-tbl"><thead><tr><th>Ticker</th><th>$Delta</th><th>$Γ/1%</th><th>$Θ/d</th><th>$Vega</th></tr></thead><tbody>';
+    for (const [tkr, v] of rows as any) {
+      const col = v.dollarDelta >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+      html += `<tr><td>${esc(tkr)}</td><td style="color:${col}">${fmtDollar(v.dollarDelta)}</td><td>${fmtDollar(v.dollarGamma1pct)}</td><td>${fmtDollar(v.theta)}</td><td>${fmtDollar(v.vega)}</td></tr>`;
+    }
+    html += "</tbody></table>";
+    tEl.innerHTML = html;
+  }
+
+  const vEl = document.getElementById("vega-ladder");
+  if (vEl) {
+    const ladder = ex.vegaLadder || [];
+    const maxAbs = Math.max(1, ...ladder.map((b: any) => Math.abs(b.vega)));
+    let html = '<div style="display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:11px">';
+    for (const b of ladder) {
+      const w = Math.abs(b.vega) / maxAbs * 100;
+      const col = b.vega >= 0 ? "rgba(77,208,225,0.6)" : "rgba(239,83,80,0.6)";
+      html += `<div style="display:flex;align-items:center;gap:8px"><span style="width:52px;color:var(--tx3)">${b.bucket}</span><span style="flex:1;background:var(--bg2);border-radius:3px;height:14px;position:relative"><span style="position:absolute;left:0;top:0;height:100%;width:${w}%;background:${col};border-radius:3px"></span></span><span style="width:64px;text-align:right">${fmtDollar(b.vega)}</span></div>`;
+    }
+    html += "</div>";
+    vEl.innerHTML = html;
+  }
+}
+
+export function renderExpiryCalendar(cal: any) {
+  const section = document.getElementById("expiry-calendar-section");
+  const body = document.getElementById("expiry-calendar-body");
+  if (!section || !body) return;
+  if (!cal?.length) { section.hidden = true; return; }
+  section.hidden = false;
+  const maxGamma = Math.max(1, ...cal.map((r: any) => r.absGamma));
+  let html = '<table class="hist-tbl"><thead><tr><th>Expiry</th><th>DTE</th><th>Tickers</th><th>Legs</th><th>Net Δ</th><th>|Γ|</th><th>Vega</th><th>Notional</th><th>Near strike</th><th></th></tr></thead><tbody>';
+  for (const r of cal) {
+    const gw = r.absGamma / maxGamma * 100;
+    const pin = r.pinRisk ? `<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(255,193,7,0.18);color:var(--warn-tx)" title="≤10 DTE and within 3% of a strike — gamma/assignment risk into expiry">pin risk</span>` : "";
+    const ddCol = r.netDelta >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+    const tickers = r.tickers.slice(0, 4).join(", ") + (r.tickers.length > 4 ? ` +${r.tickers.length - 4}` : "");
+    const near = r.nearestStrikePct != null ? `${r.nearestStrikePct}%` : "—";
+    const rowBg = r.pinRisk ? "background:rgba(255,193,7,0.06)" : "";
+    html += `<tr style="${rowBg}"><td>${esc(r.expiry)}</td><td>${r.dte}d</td><td title="${esc(r.tickers.join(", "))}">${esc(tickers)}</td><td>${r.legs}</td><td style="color:${ddCol}">${r.netDelta}</td><td><span style="display:inline-block;min-width:46px;background:linear-gradient(90deg,rgba(171,71,188,0.5) ${gw}%,transparent ${gw}%);padding:0 4px;border-radius:2px">${r.absGamma}</span></td><td>${fmtDollar(r.vega)}</td><td>${fmtDollar(r.notional)}</td><td>${near}</td><td>${pin}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  body.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tier-3: Implied-vs-realized vol · Sector rollup · Benchmark vs SPY
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function loadRiskFactors() {
+  const pg = (state.greeks as any)?.positions;
+  if (!pg?.length || !state.marketData) return;
+  try {
+    const { ok, data } = await fetchJson("/api/risk/factors", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ positionGreeks: pg, marketData: state.marketData }),
+    });
+    if (!ok || data.error) return;
+    renderVolComparison(data.volComparison);
+    renderSectorRollup(data.sectors);
+    renderBenchmark(data.benchmark);
+  } catch (e) { /* best-effort (network) */ }
+}
+
+export function renderVolComparison(rows: any) {
+  const section = document.getElementById("vol-comparison-section");
+  const body = document.getElementById("vol-comparison-body");
+  if (!section || !body) return;
+  const valid = (rows || []).filter((r: any) => r.rv20 != null || r.iv != null);
+  if (!valid.length) { section.hidden = true; return; }
+  section.hidden = false;
+  let html = '<table class="hist-tbl"><thead><tr><th>Ticker</th><th>IV</th><th>RV 20d</th><th>RV 60d</th><th>IV−RV</th><th>Signal</th></tr></thead><tbody>';
+  for (const r of valid) {
+    const sigColor = r.signal === "rich" ? "var(--ok-tx)" : (r.signal === "cheap" ? "var(--err-tx)" : "var(--tx3)");
+    const spread = r.ivRvSpread != null ? `${r.ivRvSpread > 0 ? "+" : ""}${r.ivRvSpread}` : "—";
+    html += `<tr><td>${esc(r.ticker)}</td><td>${r.iv != null ? r.iv + "%" : "—"}</td><td>${r.rv20 != null ? r.rv20 + "%" : "—"}</td><td>${r.rv60 != null ? r.rv60 + "%" : "—"}</td><td style="color:${sigColor}">${spread}</td><td style="color:${sigColor}">${r.signal || "—"}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  body.innerHTML = html;
+}
+
+export function renderSectorRollup(s: any) {
+  const section = document.getElementById("sector-section");
+  const body = document.getElementById("sector-body");
+  const meta = document.getElementById("sector-meta");
+  if (!section || !body) return;
+  if (!s?.sectors?.length) { section.hidden = true; return; }
+  section.hidden = false;
+  if (meta) meta.textContent = `${s.effectiveSectors ?? "—"} eff. sectors · HHI ${s.hhi ?? "—"}`;
+  const maxAbs = Math.max(1, ...s.sectors.map((r: any) => r.absDollarDelta));
+  let html = '<div style="display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:11px">';
+  for (const r of s.sectors) {
+    const w = r.absDollarDelta / maxAbs * 100;
+    const col = r.dollarDelta >= 0 ? "rgba(76,175,80,0.55)" : "rgba(239,83,80,0.55)";
+    const ddCol = r.dollarDelta >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+    html += `<div style="display:flex;align-items:center;gap:8px"><span style="width:120px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.tickers.join(", "))}">${esc(r.sector)}</span><span style="flex:1;background:var(--bg2);border-radius:3px;height:16px;position:relative"><span style="position:absolute;left:0;top:0;height:100%;width:${w}%;background:${col};border-radius:3px"></span></span><span style="width:90px;text-align:right;color:${ddCol}">${fmtDollar(r.dollarDelta)}</span><span style="width:42px;text-align:right;color:var(--tx3)">${r.pct}%</span></div>`;
+  }
+  html += "</div>";
+  body.innerHTML = html;
+}
+
+export function renderBenchmark(b: any) {
+  const section = document.getElementById("benchmark-section");
+  const statsEl = document.getElementById("benchmark-stats");
+  if (!section || !statsEl) return;
+  if (!b || (b.dollarBetaPer1pct == null && b.betaWeightedDollarDelta == null)) { section.hidden = true; return; }
+  section.hidden = false;
+  let html = "";
+  if (b.betaWeightedDollarDelta != null) {
+    const col = b.betaWeightedDollarDelta >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+    html += `<div class="stat"><div class="stat-label" title="Beta-adjusted SPY-equivalent dollar exposure (holdings-based)">β-wtd $Delta</div><div class="stat-val" style="color:${col}">${fmtDollar(b.betaWeightedDollarDelta)}</div></div>`;
+  }
+  if (b.dollarBetaPer1pct != null) {
+    html += `<div class="stat"><div class="stat-label" title="Book P&L per +1% SPY move (regression on tracked snapshots)">$ Beta /+1% SPY</div><div class="stat-val">${fmtDollar(b.dollarBetaPer1pct)}</div></div>`;
+    html += `<div class="stat"><div class="stat-label">Correlation</div><div class="stat-val">${b.correlation ?? "—"}</div><div class="stat-sub">R² ${b.rSquared ?? "—"}</div></div>`;
+    html += `<div class="stat"><div class="stat-label" title="Avg non-market P&L per tracked period">Alpha /period</div><div class="stat-val" style="color:${(b.alphaPerPeriod || 0) >= 0 ? "var(--ok-tx)" : "var(--err-tx)"}">${fmtDollar(b.alphaPerPeriod)}</div></div>`;
+    html += `<div class="stat"><div class="stat-label">SPY (window)</div><div class="stat-val" style="color:${(b.spyReturnPct || 0) >= 0 ? "var(--ok-tx)" : "var(--err-tx)"}">${b.spyReturnPct != null ? b.spyReturnPct + "%" : "—"}</div><div class="stat-sub">${b.nPeriods ?? 0} periods</div></div>`;
+  }
+  statsEl.innerHTML = html || '<span style="font-size:11px;color:var(--tx3)">Need more book snapshots for a benchmark estimate.</span>';
+}
 

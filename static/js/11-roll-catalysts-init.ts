@@ -110,6 +110,12 @@ if (localStorage.getItem("od_wide") === "1") document.querySelector(".container"
 updateWideLayoutButton();
 setupKeyboardShortcuts();
 updateFetchButtonState();
-restoreSession();
+// Defer restore to a macrotask so it runs AFTER the whole bundle IIFE has
+// finished evaluating every module. Calling it inline (mid-IIFE) could render
+// the book before a later-evaluated module assigned its exports (e.g. SEV_CLASS
+// in 03-render under the circular import graph), throwing mid-render and leaving
+// the positions blank until a manual Fetch. The DOM is already parsed (the
+// bundle loads at end of body), so a 0ms defer is safe.
+setTimeout(restoreSession, 0);
 loadCatalysts();
 

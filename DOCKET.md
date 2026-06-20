@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.2.0](CHANGELOG.md) — Phases 4–7: broker integration, async market data, orders & rules, tax lots & VaR, journal v2, notifications & export.
+**Current release:** [v1.3.0](CHANGELOG.md) — analytics & risk: drawdown/cohorts/attribution, component VaR + dollar-greeks + pin-risk calendar, IV-vs-RV/sector/SPY-benchmark, premium-adjusted cost basis, interactive Greeks Lab; plus TS/ES-module completion, IBKR Flex, in-app Schwab setup, realized-P&L correctness, reload-UX fixes. (Prior: v1.2.0 — Phases 4–7: broker integration, orders & rules, tax lots & VaR, journal v2.)
 
 ---
 
@@ -112,6 +112,67 @@ Driven by validating real Fidelity + Schwab exports. Full detail in [CHANGELOG.m
 
 ---
 
+## Shipped (unreleased) — Greeks Lab (per-leg interactive Black-Scholes)
+
+A **"Greeks" button on every option leg** opens a modal plotting how the contract's value and Greeks evolve toward expiry and across the underlying (IBKR Risk-Navigator-style, per leg). Black-Scholes runs **client-side** (`static/js/14-greeks-lab.ts`, mirrors server `bs_greeks`/`bs_option_value`, validated to < 1.3e-5) for instant slider response. Sliders: days-to-expiry, spot, IV → live readout (value, intrinsic/extrinsic, position Δ/Γ/Θ/V, P&L vs fill) + chart with metric selector and time/price x-axis toggle. Single leg, IV flat across time (labeled), theoretical BSM. New module registered in MODULE_ORDER / bundle-entry / tsconfig; tsc + esbuild clean. Pure frontend — no API change.
+
+> **Frontend rebuild required:** `npm run build` (Command Prompt) or relaunch `start.bat`.
+
+---
+
+## Shipped (unreleased) — effective (premium-adjusted) cost basis
+
+Optional **"Effective basis"** toggle (Positions toolbar, off by default, `localStorage`-persisted): long-share basis − realized option premium on the name. Shows broker `Avg` vs `Eff $` on cards (negative = "house money") and feeds the simulation's share P&L via equity `adjCost` (no double-count — realized premium excludes open legs). Economic/wheel basis, **not** tax basis. **Two scopes** (`All` / `Since lot`): all-time premium, or only premium since the current share lot opened (anchored by a new `openShareLots` field in `/api/trade-history`, with graceful fallback to *All* when the lot's buys aren't in the uploaded history). Frontend (`03-render.ts`, `08-simulate.ts`, `main.ts`) + one backend response field; tsc + full pytest (150) green. Real-data example: NKTR options −$1,186 all-time vs +$1,180 since the 5/27 assignment.
+
+> **Frontend rebuild required** for the toggle to appear: `npm run build` (use Command Prompt, not PowerShell — `npm.ps1` is blocked by the default execution policy) or just launch `start.bat`, which rebuilds via prep.
+
+## Shipped (unreleased) — factor analytics pass (Tier 3: IV-vs-RV · sector · benchmark)
+
+Third analytics sprint — factor/relative views (one best-effort `/api/risk/factors`). Full detail in [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+
+| Area | Scope |
+|------|-------|
+| **Implied vs realized vol** | `_annualized_realized_vol` — 20d/60d RV vs current IV per ticker; variance-risk-premium signal (rich/cheap/fair). Risk-tab table |
+| **Sector exposure** | `_rollup_by_sector` — dollar-delta by GICS sector (yfinance sector, cached 7d) + net/gross, % of book, sector HHI / effective sectors. Risk-tab bar chart |
+| **Benchmark vs SPY** | `_compute_benchmark_metrics` — dollar beta ($ P&L per +1% SPY), correlation, R², alpha$/period from tracked book snapshots; plus holdings-based beta-weighted $Δ. Risk-tab cards |
+| **Tests** | `tests/test_risk_tier3.py` (8 cases) — realized-vol, sector HHI, benchmark dollar-beta, endpoint shape |
+
+> **Frontend rebuild required:** regenerate the bundle (`static/dist/app.bundle.js`) — `start.bat` / `prep_before_start.py` do this automatically, or run `npm run build`.
+
+All three analytics tiers (drawdown/cohorts/attribution, risk decomposition, factor views) are now shipped. No analytics candidates remain in the backlog.
+
+## Shipped (unreleased) — risk decomposition pass (Tier 2: component VaR · dollar-greeks · pin-risk)
+
+Second analytics sprint — risk/exposure decompositions. Full detail in [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+
+| Area | Scope |
+|------|-------|
+| **Component VaR** | `_compute_component_var` — per-ticker contribution to tail loss (expected-shortfall/Euler, additive to CVaR), standalone VaR, % of tail, diversification benefit; computed in `/api/simulate`, shown under the VaR panel |
+| **Dollar-greeks + concentration** | `POST /api/risk/exposure` (`_compute_exposure_metrics`) — $delta/$gamma-per-1%/$theta/$vega by ticker + book; HHI / effective names / top-name / top-3 %; vega-by-DTE ladder. Risk-tab "Exposure & concentration" section |
+| **Expiration / pin-risk calendar** | `_compute_expiry_calendar` — per-expiry legs / net Δ / |Γ| / vega / notional / nearest-strike %; pin flag (≤10 DTE within 3% of a strike). Risk-tab calendar with gamma heat bar |
+| **Tests** | `tests/test_risk_tier2.py` (10 cases) — component-VaR additivity, dollar-greeks, HHI, pin-risk, endpoint shape |
+
+> **Frontend rebuild required:** regenerate the bundle (`static/dist/app.bundle.js`) — `start.bat` / `prep_before_start.py` do this automatically, or run `npm run build`.
+
+Remaining analytics candidates (not yet built): realized-vs-implied vol, benchmark-relative (alpha/beta vs SPY), sector rollup.
+
+## Shipped (unreleased) — analytics pass (drawdown · cohorts · attribution timeline)
+
+First analytics sprint — all three reuse data already captured in `portfolio.db`, no new fetch path. Full detail in [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`.
+
+| Area | Scope |
+|------|-------|
+| **Drawdown** | `_compute_drawdown_metrics` on the realized equity curve — max DD ($/%), current DD, peak/trough/recovery dates, days-to-recover, longest-underwater (cal. days), recovery factor; Journal stat cards + underwater chart (`#drawdown-section`) |
+| **Trade cohorts** | `_compute_trade_cohorts` — win-rate/expectancy/profit-factor/total-pnl/avg-hold sliced by underlying, strategy, hold bucket, DTE-at-entry, month, weekday; Journal dimension-toggle table (`#cohorts-section`) |
+| **Attribution timeline** | `GET /api/snapshots/attribution-timeline` — cumulative price/Γ/Θ/V contribution curves + residual vs actual book Δ (timestamp-aligned ±36h); snapshot-section chart |
+| **Tests** | `tests/test_analytics.py` (10 cases) — drawdown, cohorts, endpoint shape |
+
+> **Frontend rebuild required:** regenerate the bundle (`static/dist/app.bundle.js`) for the UI to appear — `start.bat` / `prep_before_start.py` do this automatically, or run `npm run build`.
+
+All Tier-2 (component VaR, dollar-greeks, pin-risk) and Tier-3 (IV-vs-RV, sector, benchmark) analytics are shipped above. No analytics candidates remain.
+
+---
+
 ## Next up (post-1.2.0)
 
 | # | Item | Notes |
@@ -188,4 +249,4 @@ Skip slow prep during iteration: `set OD_SKIP_PREP=1` then `start.bat` (run `npm
 
 ---
 
-*Last updated: 2026-06-19 (unreleased realized-P&L correctness pass — multi-broker parsing, cost basis, tax lots, simulation, break-evens, sort/filter; validated on real Fidelity + Schwab exports)*
+*Last updated: 2026-06-20 — cut **v1.3.0** (analytics & risk: 3 analytics tiers, effective basis, Greeks Lab w/ higher-order Greeks + spot↔vol link, reload-UX fixes). The "Shipped (unreleased)" sections below are now released in v1.3.0. tsc + esbuild + full pytest green.*

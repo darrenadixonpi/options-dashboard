@@ -36,6 +36,35 @@ document.addEventListener("DOMContentLoaded", () => {
     if (state.portfolio) renderPortfolio(state.portfolio, !!state.marketData);
   });
 
+  // Effective (premium-adjusted) basis toggle — persisted in localStorage, re-renders cards.
+  const effToggle = document.getElementById("toggle-eff-basis") as HTMLInputElement | null;
+  if (effToggle) {
+    try { effToggle.checked = localStorage.getItem("od_effective_basis") === "1"; } catch (e) {}
+    effToggle.addEventListener("change", () => {
+      try { localStorage.setItem("od_effective_basis", effToggle.checked ? "1" : "0"); } catch (e) {}
+      if (state.portfolio) renderPortfolio(state.portfolio, !!state.marketData);
+    });
+  }
+
+  // Effective-basis premium scope: All (all-time) vs Since lot (current holding only).
+  const effModeWrap = document.getElementById("effbasis-mode");
+  if (effModeWrap) {
+    const syncMode = () => {
+      let mode = "all";
+      try { mode = localStorage.getItem("od_effbasis_mode") === "lot" ? "lot" : "all"; } catch (e) {}
+      effModeWrap.querySelectorAll(".effmode-btn").forEach(b =>
+        b.classList.toggle("btn-ghost", (b as HTMLElement).dataset.effmode !== mode));
+    };
+    syncMode();
+    effModeWrap.addEventListener("click", e => {
+      const btn = (e.target as HTMLElement).closest(".effmode-btn") as HTMLElement | null;
+      if (!btn) return;
+      try { localStorage.setItem("od_effbasis_mode", btn.dataset.effmode === "lot" ? "lot" : "all"); } catch (e) {}
+      syncMode();
+      if (state.portfolio) renderPortfolio(state.portfolio, !!state.marketData);
+    });
+  }
+
   // ─── Background refresh badge (Phase 5.1) ───────────────────────────────
   // Poll /api/market-data/cached every 60s. When the server has fresher data
   // than the last manual fetch, show a clickable "↻ refreshed Xm ago" badge.

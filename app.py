@@ -681,6 +681,13 @@ _beta_cache = {}
 BETA_TTL_S = 6 * 3600       # per-ticker beta: 6 hours
 BETA_SPY_TTL_S = 15 * 60    # SPY price/returns: 15 minutes
 
+# Tier-3 factor caches (realized vol, sector). {ticker: (value, fetched_at)};
+# "__SPY_CLOSES__" holds ({date: close}, ts) for the benchmark alignment.
+_hist_cache = {}
+_sector_cache = {}
+HIST_TTL_S = 30 * 60        # price-history closes: 30 minutes
+SECTOR_TTL_S = 7 * 24 * 3600  # GICS sector: 7 days (rarely changes)
+
 
 @app.route("/api/greeks", methods=["POST"])
 def compute_greeks():
@@ -1385,6 +1392,7 @@ def simulate():
             "ticker_paths": ticker_path_data,
             "theta": theta_data,
             "correlation": corr_info,
+            "component_var": _compute_component_var(all_pnl, ticker_pnl, 0.95),
         }
         return jsonify(validate_response(SimulateResponse, result))
 
@@ -2713,6 +2721,233 @@ def _compute_journal_risk_metrics(daily_pnl_series):
     }
 
 
+def _compute_drawdown_metrics(daily_pnl_series):
+    """Drawdown analytics on the realized cumulative-P&L (equity) curve.
+
+    Operates on the same per-close-day series _build_daily_pnl produces (each
+    row has date, dayPnl, cumPnl). The curve is realized P&L in dollars, so it
+    can sit at or below zero and has no capital base — percentage drawdown is
+    therefore reported only against positive running peaks, and we expose a
+    unitless recovery factor (net profit / max drawdown) rather than a
+    capital-based Calmar ratio.
+    """
+    if not daily_pnl_series or len(daily_pnl_series) < 2:
+        return None
+
+    chrono = sorted(daily_pnl_series, key=lambda d: d["date"])
+    peak = float(chrono[0]["cumPnl"])
+    peak_date = chrono[0]["date"]
+    max_dd = 0.0
+    max_dd_pct = None
+    trough_date = None
+    dd_peak_date = None
+    underwater = []
+
+    longest_uw = 0          # longest underwater stretch in calendar days
+    uw_start_date = None    # peak date that began the current underwater stretch
+
+    for row in chrono:
+        cum = float(row["cumPnl"])
+        if cum >= peak:
+            if uw_start_date is not None:
+                span = (pd.Timestamp(row["date"]) - pd.Timestamp(uw_start_date)).days
+                longest_uw = max(longest_uw, span)
+                uw_start_date = None
+            peak = cum
+            peak_date = row["date"]
+        else:
+            if uw_start_date is None:
+                uw_start_date = peak_date
+        dd = cum - peak  # <= 0
+        if dd < max_dd:
+            max_dd = dd
+            trough_date = row["date"]
+            dd_peak_date = peak_date
+            max_dd_pct = (dd / peak * 100) if peak > 1e-9 else None
+        underwater.append({
+            "date": row["date"],
+            "drawdown": round(dd, 2),
+            "cum": round(cum, 2),
+            "peak": round(peak, 2),
+        })
+
+    if uw_start_date is not None:
+        span = (pd.Timestamp(chrono[-1]["date"]) - pd.Timestamp(uw_start_date)).days
+        longest_uw = max(longest_uw, span)
+
+    # Recovery: first date after the trough where the curve regains the pre-DD peak.
+    recovery_date = None
+    days_to_recover = None
+    still_underwater = False
+    if trough_date is not None and dd_peak_date is not None:
+        pre_peak = None
+        for row in chrono:
+            if row["date"] == dd_peak_date:
+                pre_peak = float(row["cumPnl"])
+                break
+        if pre_peak is not None:
+            past_trough = False
+            for row in chrono:
+                if row["date"] == trough_date:
+                    past_trough = True
+                    continue
+                if past_trough and float(row["cumPnl"]) >= pre_peak:
+                    recovery_date = row["date"]
+                    break
+            if recovery_date is not None:
+                days_to_recover = (pd.Timestamp(recovery_date) - pd.Timestamp(dd_peak_date)).days
+            else:
+                still_underwater = max_dd < -1e-9
+
+    final_cum = float(chrono[-1]["cumPnl"])
+    cur_dd = round(final_cum - peak, 2)
+    cur_dd_pct = round((final_cum - peak) / peak * 100, 1) if peak > 1e-9 else None
+    recovery_factor = round(final_cum / abs(max_dd), 2) if max_dd < -1e-9 else None
+
+    return {
+        "maxDrawdown": round(max_dd, 2),
+        "maxDrawdownPct": round(max_dd_pct, 1) if max_dd_pct is not None else None,
+        "peakDate": dd_peak_date,
+        "troughDate": trough_date,
+        "recoveryDate": recovery_date,
+        "daysToRecover": days_to_recover,
+        "stillUnderwater": still_underwater,
+        "currentDrawdown": cur_dd,
+        "currentDrawdownPct": cur_dd_pct,
+        "longestUnderwaterDays": longest_uw,
+        "recoveryFactor": recovery_factor,
+        "finalCum": round(final_cum, 2),
+        "underwater": underwater,
+    }
+
+
+def _compute_trade_cohorts(journal_trades):
+    """Slice realized performance into cohorts across several dimensions:
+    underlying, strategy, hold-period bucket, DTE-at-entry bucket (options with
+    a parseable expiry), calendar month closed, and weekday closed.
+
+    Metrics per cohort are leg-level (a cohort can span strategy groups), so the
+    winRate here is leg-level — distinct from the group-level winRate in the
+    headline journal stats.
+    """
+    if not journal_trades:
+        return None
+
+    def _summ(trades):
+        n = len(trades)
+        if not n:
+            return None
+        wins = [t for t in trades if t.get("isWin")]
+        pnls = [float(t.get("pnl", 0) or 0) for t in trades]
+        gross_w = sum(p for p in pnls if p > 0)
+        gross_l = abs(sum(p for p in pnls if p < 0))
+        holds = [t["holdDays"] for t in trades if t.get("holdDays") is not None]
+        total = sum(pnls)
+        return {
+            "trades": n,
+            "wins": len(wins),
+            "winRate": round(len(wins) / n * 100, 1),
+            "totalPnl": round(total, 2),
+            "avgPnl": round(total / n, 2),
+            "profitFactor": round(gross_w / gross_l, 2) if gross_l > 1e-9 else (999.99 if gross_w > 0 else 0),
+            "avgHoldDays": round(float(np.mean(holds)), 1) if holds else None,
+        }
+
+    def _grouped(key_fn):
+        buckets = defaultdict(list)
+        for t in journal_trades:
+            k = key_fn(t)
+            if k is None:
+                continue
+            buckets[k].append(t)
+        rows = []
+        for k, ts in buckets.items():
+            s = _summ(ts)
+            if s:
+                s["key"] = k
+                rows.append(s)
+        return rows
+
+    def _hold_bucket(t):
+        h = t.get("holdDays")
+        if h is None:
+            return None
+        if h <= 0:
+            return "0 (same day)"
+        if h <= 7:
+            return "1-7d"
+        if h <= 30:
+            return "8-30d"
+        if h <= 90:
+            return "31-90d"
+        return "90d+"
+    hold_order = ["0 (same day)", "1-7d", "8-30d", "31-90d", "90d+"]
+
+    def _dte_at_entry(t):
+        if t.get("instrument") == "equity":
+            return None
+        exp = t.get("expiry")
+        od = t.get("openDate")
+        if not exp or not od:
+            return None
+        try:
+            dte = (pd.Timestamp(exp) - pd.Timestamp(od)).days
+        except Exception:
+            return None
+        if dte < 0:
+            return None
+        if dte <= 7:
+            return "0-7 DTE"
+        if dte <= 21:
+            return "8-21 DTE"
+        if dte <= 45:
+            return "22-45 DTE"
+        if dte <= 90:
+            return "46-90 DTE"
+        return "90+ DTE"
+    dte_order = ["0-7 DTE", "8-21 DTE", "22-45 DTE", "46-90 DTE", "90+ DTE"]
+
+    def _month(t):
+        d = t.get("closeDate")
+        if not d:
+            return None
+        try:
+            return pd.Timestamp(d).strftime("%Y-%m")
+        except Exception:
+            return None
+
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    def _dow(t):
+        d = t.get("closeDate")
+        if not d:
+            return None
+        try:
+            return dow_names[pd.Timestamp(d).weekday()]
+        except Exception:
+            return None
+
+    def _reorder(rows, order):
+        idx = {k: i for i, k in enumerate(order)}
+        return sorted(rows, key=lambda r: idx.get(r["key"], 99))
+
+    def _by_pnl(rows):
+        return sorted(rows, key=lambda r: r["totalPnl"], reverse=True)
+
+    def _by_key(rows):
+        return sorted(rows, key=lambda r: r["key"])
+
+    return {
+        "byUnderlying": _by_pnl(_grouped(lambda t: t.get("ticker"))),
+        "byStrategy": _by_pnl(_grouped(
+            lambda t: _normalize_strategy_label(t.get("strategy")) if t.get("strategy") else "Unknown")),
+        "byHoldBucket": _reorder(_grouped(_hold_bucket), hold_order),
+        "byDteAtEntry": _reorder(_grouped(_dte_at_entry), dte_order),
+        "byMonth": _by_key(_grouped(_month)),
+        "byWeekday": _reorder(_grouped(_dow), dow_names),
+    }
+
+
 def _option_mark_key(p):
     exp = p.get("expiry") or ""
     if isinstance(exp, str) and "T" in exp:
@@ -3194,7 +3429,8 @@ def _build_equity_closed_trades(ticker, txns):
                 if lot["qty"] == 0:
                     short_lots.pop(0)
 
-    return results
+    # leftover long_lots = currently-held open long shares (with acquisition dates)
+    return results, long_lots
 
 
 @app.route("/api/trade-history", methods=["POST"])
@@ -3216,8 +3452,17 @@ def trade_history():
             all_open_events.extend(open_events)
             closed_trades.extend(matched)
 
+        open_share_lots = {}
         for ticker, txns in equity_txns.items():
-            closed_trades.extend(_build_equity_closed_trades(ticker, txns))
+            eq_closed, eq_open_lots = _build_equity_closed_trades(ticker, txns)
+            closed_trades.extend(eq_closed)
+            long_open = [l for l in (eq_open_lots or []) if l.get("qty", 0) > 0]
+            if long_open:
+                earliest = min(pd.Timestamp(l["date"]) for l in long_open)
+                open_share_lots[ticker] = {
+                    "openDate": str(earliest.date()),
+                    "qty": sum(l["qty"] for l in long_open),
+                }
 
         used_roll_opens = _link_rolls(closed_trades, all_open_events)
         _format_roll_rows(closed_trades)
@@ -3245,14 +3490,21 @@ def trade_history():
             data_warnings.append({"code": "ibkr_parse", "msg": w})
         journal_trades = _journal_aggregate_trades(closed_trades)
 
+        daily_series = _build_daily_pnl(closed_trades)
         stats = _compute_journal_stats(journal_trades)
         if stats:
             stats["dataWarnings"] = data_warnings
             stats["openLotsRemaining"] = open_lots_remaining
             stats["historyFormat"] = hist_fmt
-            risk = _compute_journal_risk_metrics(_build_daily_pnl(closed_trades))
+            risk = _compute_journal_risk_metrics(daily_series)
             if risk:
                 stats["risk"] = risk
+            drawdown = _compute_drawdown_metrics(daily_series)
+            if drawdown:
+                stats["drawdown"] = drawdown
+            cohorts = _compute_trade_cohorts(journal_trades)
+            if cohorts:
+                stats["cohorts"] = cohorts
         elif data_warnings or open_lots_remaining:
             stats = {"dataWarnings": data_warnings, "openLotsRemaining": open_lots_remaining}
 
@@ -3300,7 +3552,8 @@ def trade_history():
         return jsonify({
             "trades": closed_trades,
             "stats": stats,
-            "dailyPnl": _build_daily_pnl(closed_trades),
+            "dailyPnl": daily_series,
+            "openShareLots": open_share_lots,
             "historyFormat": hist_fmt,
             "parseWarnings": parse_warnings[:20],
         })
@@ -3398,6 +3651,105 @@ def get_attribution_snapshots():
             "attribution": data,
         })
     return jsonify({"snapshots": out})
+
+
+@app.route("/api/snapshots/attribution-timeline", methods=["GET"])
+def attribution_timeline():
+    """Cumulative greek-based P&L attribution across stored attribution
+    snapshots (chronological). Each attribution snapshot is one fetch-to-fetch
+    step's decomposition (price/gamma/theta/vega); we sum them into cumulative
+    contribution curves. Where book snapshots are alignable by timestamp, we
+    also attach a residual = actual cumulative Δ book unrealized P&L − attributed
+    cumulative — the unexplained part (position changes + higher-order terms)."""
+    limit = min(int(request.args.get("limit", 60)), 200)
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT timestamp, portfolio_total, data_json FROM attribution_snapshots ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    book_rows = conn.execute(
+        "SELECT timestamp, unrealized_pnl FROM portfolio_book_snapshots ORDER BY id ASC",
+    ).fetchall()
+    conn.close()
+
+    rows = list(reversed(rows))  # chronological
+    points = []
+    cum = {"price": 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0, "total": 0.0}
+    for r in rows:
+        try:
+            data = json.loads(r["data_json"])
+        except Exception:
+            data = {}
+        port = data.get("portfolio") or {}
+        price = float(port.get("pricePnl", 0) or 0)
+        gamma = float(port.get("gammaPnl", 0) or 0)
+        theta = float(port.get("thetaPnl", 0) or 0)
+        vega = float(port.get("vegaPnl", 0) or 0)
+        step_total = float(port.get("total", price + gamma + theta + vega) or 0)
+        cum["price"] += price
+        cum["gamma"] += gamma
+        cum["theta"] += theta
+        cum["vega"] += vega
+        cum["total"] += step_total
+        points.append({
+            "timestamp": r["timestamp"],
+            "price": round(price, 2),
+            "gamma": round(gamma, 2),
+            "theta": round(theta, 2),
+            "vega": round(vega, 2),
+            "stepTotal": round(step_total, 2),
+            "cumPrice": round(cum["price"], 2),
+            "cumGamma": round(cum["gamma"], 2),
+            "cumTheta": round(cum["theta"], 2),
+            "cumVega": round(cum["vega"], 2),
+            "cumTotal": round(cum["total"], 2),
+        })
+
+    # Residual vs actual book unrealized P&L (best-effort timestamp alignment).
+    residual_available = False
+
+    def _naive_ts(v):
+        try:
+            t = pd.Timestamp(v)
+            return t.tz_convert("UTC").tz_localize(None) if t.tzinfo is not None else t
+        except Exception:
+            return None
+
+    if len(book_rows) >= 2 and len(points) >= 2:
+        book = [(_naive_ts(b["timestamp"]), float(b["unrealized_pnl"])) for b in book_rows]
+        book = [b for b in book if b[0] is not None]
+        if len(book) >= 2:
+            tol = 36 * 3600  # 36h alignment tolerance
+
+            def _nearest(ts):
+                best, best_gap = None, None
+                for bt, bv in book:
+                    gap = abs((bt - ts).total_seconds())
+                    if best_gap is None or gap < best_gap:
+                        best_gap, best = gap, bv
+                return best, best_gap
+
+            base_ts = _naive_ts(points[0]["timestamp"])
+            base_book, base_gap = _nearest(base_ts) if base_ts is not None else (None, None)
+            if base_book is not None and base_gap is not None and base_gap <= tol:
+                matched = 0
+                for p in points:
+                    pts = _naive_ts(p["timestamp"])
+                    if pts is None:
+                        continue
+                    bv, gap = _nearest(pts)
+                    if bv is not None and gap is not None and gap <= tol:
+                        actual_cum = bv - base_book
+                        p["cumBookChange"] = round(actual_cum, 2)
+                        p["residual"] = round(actual_cum - p["cumTotal"], 2)
+                        matched += 1
+                residual_available = matched >= 2
+
+    return jsonify({
+        "points": points,
+        "residualAvailable": residual_available,
+        "residualNote": "Residual = actual Δ book unrealized P&L − attributed; includes position changes & higher-order terms.",
+    })
 
 
 @app.route("/api/snapshots/book", methods=["POST"])
@@ -5240,6 +5592,294 @@ def submit_order(order_id):
 
 # ─── Risk VaR route (Phase 7.6) ──────────────────────────────────────────────
 
+def _annualized_realized_vol(closes, window=20):
+    """Annualized realized volatility (%) from the last `window` daily log returns."""
+    closes = np.asarray([c for c in (closes or []) if c and c > 0], dtype=float)
+    if closes.size < window + 1:
+        return None
+    rets = np.diff(np.log(closes))[-window:]
+    if rets.size < 2:
+        return None
+    return round(float(np.std(rets, ddof=1) * np.sqrt(252) * 100), 1)
+
+
+def _rollup_by_sector(position_greeks, market, sector_map):
+    """Dollar-delta exposure rolled up by GICS sector, with a concentration index."""
+    if not position_greeks:
+        return None
+    by_sector = {}
+    for pg in position_greeks:
+        tkr = pg.get("ticker")
+        if not tkr:
+            continue
+        spot = float((market.get(tkr) or {}).get("price") or 0)
+        dd = float(pg.get("delta") or 0) * spot
+        sector = sector_map.get(tkr) or "Unknown"
+        s = by_sector.setdefault(sector, {"dollarDelta": 0.0, "absDollarDelta": 0.0, "tickers": set()})
+        s["dollarDelta"] += dd
+        s["absDollarDelta"] += abs(dd)
+        s["tickers"].add(tkr)
+    gross = sum(s["absDollarDelta"] for s in by_sector.values())
+    rows = []
+    for sector, s in by_sector.items():
+        rows.append({
+            "sector": sector,
+            "dollarDelta": round(s["dollarDelta"], 2),
+            "absDollarDelta": round(s["absDollarDelta"], 2),
+            "tickers": sorted(s["tickers"]),
+            "tickerCount": len(s["tickers"]),
+            "pct": round(s["absDollarDelta"] / gross * 100, 1) if gross > 1e-9 else 0.0,
+        })
+    rows.sort(key=lambda r: r["absDollarDelta"], reverse=True)
+    hhi = sum((r["absDollarDelta"] / gross) ** 2 for r in rows) if gross > 1e-9 else None
+    return {
+        "sectors": rows,
+        "grossDollarDelta": round(gross, 2),
+        "hhi": round(hhi, 4) if hhi is not None else None,
+        "effectiveSectors": round(1.0 / hhi, 1) if hhi and hhi > 1e-9 else None,
+    }
+
+
+def _compute_benchmark_metrics(book_points, spy_by_date):
+    """Returns-based benchmark stats from tracked book snapshots vs SPY.
+
+    Works in dollar terms to avoid a capital-base assumption: regress per-period
+    change in book unrealized P&L ($) on SPY's fractional return. The slope is a
+    dollar beta (P&L per +1% SPY), the intercept an average non-market P&L per
+    period (alpha$). Also returns correlation, R², and window totals. Position
+    changes between snapshots add noise — this is a tracked-period estimate."""
+    if not book_points or not spy_by_date or len(book_points) < 5:
+        return None
+
+    def _date(ts):
+        try:
+            return str(pd.Timestamp(ts).date())
+        except Exception:
+            return None
+
+    chrono = sorted(book_points, key=lambda b: b.get("timestamp") or "")
+    aligned = []
+    for b in chrono:
+        d = _date(b.get("timestamp"))
+        upnl = b.get("unrealizedPnl")
+        if d is None or upnl is None or d not in spy_by_date:
+            continue
+        aligned.append((d, float(upnl), float(spy_by_date[d])))
+    if len(aligned) < 5:
+        return None
+    port = np.array([a[1] for a in aligned], dtype=float)
+    spy = np.array([a[2] for a in aligned], dtype=float)
+    port_chg = np.diff(port)
+    spy_ret = np.diff(spy) / spy[:-1]
+    mask = np.isfinite(port_chg) & np.isfinite(spy_ret)
+    port_chg, spy_ret = port_chg[mask], spy_ret[mask]
+    if port_chg.size < 4 or float(np.std(spy_ret)) < 1e-12:
+        return None
+    cov = np.cov(port_chg, spy_ret)
+    beta_per_unit = float(cov[0, 1] / cov[1, 1])
+    corr = float(np.corrcoef(port_chg, spy_ret)[0, 1])
+    alpha = float(np.mean(port_chg) - beta_per_unit * np.mean(spy_ret))
+    return {
+        "nPeriods": int(port_chg.size),
+        "dollarBetaPer1pct": round(beta_per_unit / 100.0, 2),
+        "correlation": round(corr, 3),
+        "rSquared": round(corr * corr, 3),
+        "alphaPerPeriod": round(alpha, 2),
+        "spyReturnPct": round((spy[-1] / spy[0] - 1) * 100, 2),
+        "portfolioPnl": round(float(port[-1] - port[0]), 2),
+        "startDate": aligned[0][0],
+        "endDate": aligned[-1][0],
+    }
+
+
+def _compute_component_var(all_pnl, ticker_pnl, confidence=0.95):
+    """Decompose tail risk into per-ticker contributions.
+
+    Uses the empirical expected-shortfall (Euler) allocation: average each
+    ticker's P&L over the portfolio's worst (1-confidence) scenarios. These
+    component contributions are additive — they sum to the portfolio's CVaR
+    (expected shortfall) — which is the stable way to attribute tail risk. Also
+    reports each ticker's standalone VaR (undiversified) and the portfolio
+    diversification benefit.
+    """
+    all_pnl = np.asarray(all_pnl, dtype=float)
+    if all_pnl.size < 10 or not ticker_pnl:
+        return None
+    alpha = 1.0 - confidence
+    var_threshold = float(np.percentile(all_pnl, alpha * 100))  # negative = a loss
+    tail_mask = all_pnl <= var_threshold
+    if not tail_mask.any():
+        return None
+    port_var = -var_threshold
+    port_cvar = -float(all_pnl[tail_mask].mean())
+
+    comps = []
+    sum_standalone = 0.0
+    for tkr, arr in ticker_pnl.items():
+        arr = np.asarray(arr, dtype=float)
+        if arr.size != all_pnl.size:
+            continue
+        comp = -float(arr[tail_mask].mean())  # contribution to ES (additive)
+        standalone = -float(np.percentile(arr, alpha * 100))
+        sum_standalone += standalone
+        comps.append({
+            "ticker": tkr,
+            "componentVar": round(comp, 2),
+            "standaloneVar": round(standalone, 2),
+            "pct": round(comp / port_cvar * 100, 1) if abs(port_cvar) > 1e-9 else 0.0,
+        })
+    comps.sort(key=lambda c: c["componentVar"], reverse=True)
+    return {
+        "confidence": confidence,
+        "portfolioVar": round(port_var, 2),
+        "portfolioCvar": round(port_cvar, 2),
+        "sumStandaloneVar": round(sum_standalone, 2),
+        "diversificationBenefit": round(sum_standalone - port_cvar, 2),
+        "components": comps,
+    }
+
+
+def _compute_exposure_metrics(position_greeks, market):
+    """Dollar-greeks, concentration, and a vega-by-DTE ladder from per-position
+    greeks (delta/gamma/theta/vega already scaled to share/contract units) plus
+    spot prices. Dollar delta = delta_shares x spot; dollar gamma = the change in
+    dollar delta for a +1% move (gamma_shares x spot^2 x 0.01); theta and vega are
+    already dollar quantities ($/day, $/vol-pt)."""
+    if not position_greeks:
+        return None
+    today = pd.Timestamp.now().normalize()
+    by_ticker = {}
+    port = {"dollarDelta": 0.0, "dollarGamma1pct": 0.0, "theta": 0.0, "vega": 0.0}
+    vega_buckets = {"0-7": 0.0, "8-21": 0.0, "22-45": 0.0, "46-90": 0.0, "90+": 0.0}
+
+    def _bucket(dte):
+        if dte <= 7:
+            return "0-7"
+        if dte <= 21:
+            return "8-21"
+        if dte <= 45:
+            return "22-45"
+        if dte <= 90:
+            return "46-90"
+        return "90+"
+
+    for pg in position_greeks:
+        tkr = pg.get("ticker")
+        if not tkr:
+            continue
+        spot = float((market.get(tkr) or {}).get("price") or 0)
+        delta_sh = float(pg.get("delta") or 0)
+        gamma_sh = float(pg.get("gamma") or 0)
+        theta = float(pg.get("theta") or 0)
+        vega = float(pg.get("vega") or 0)
+        d_delta = delta_sh * spot
+        d_gamma = gamma_sh * spot * spot * 0.01
+        agg = by_ticker.setdefault(tkr, {"dollarDelta": 0.0, "dollarGamma1pct": 0.0, "theta": 0.0, "vega": 0.0})
+        agg["dollarDelta"] += d_delta
+        agg["dollarGamma1pct"] += d_gamma
+        agg["theta"] += theta
+        agg["vega"] += vega
+        port["dollarDelta"] += d_delta
+        port["dollarGamma1pct"] += d_gamma
+        port["theta"] += theta
+        port["vega"] += vega
+        exp = pg.get("expiry")
+        if exp and pg.get("posType") != "equity":
+            try:
+                dte = (pd.Timestamp(exp) - today).days
+                if dte >= 0:
+                    vega_buckets[_bucket(dte)] += vega
+            except Exception:
+                pass
+
+    for tkr in by_ticker:
+        for k in by_ticker[tkr]:
+            by_ticker[tkr][k] = round(by_ticker[tkr][k], 2)
+    for k in port:
+        port[k] = round(port[k], 2)
+
+    abs_dd = {t: abs(v["dollarDelta"]) for t, v in by_ticker.items()}
+    gross = sum(abs_dd.values())
+    net = round(sum(v["dollarDelta"] for v in by_ticker.values()), 2)
+    concentration = None
+    if gross > 1e-9:
+        shares = sorted(abs_dd.values(), reverse=True)
+        hhi = sum((s / gross) ** 2 for s in shares)
+        ranked = sorted(by_ticker.items(), key=lambda kv: abs(kv[1]["dollarDelta"]), reverse=True)
+        concentration = {
+            "grossDollarDelta": round(gross, 2),
+            "netDollarDelta": net,
+            "hhi": round(hhi, 4),
+            "effectiveNames": round(1.0 / hhi, 1) if hhi > 1e-9 else None,
+            "names": len(by_ticker),
+            "topName": ranked[0][0] if ranked else None,
+            "topNamePct": round(abs(ranked[0][1]["dollarDelta"]) / gross * 100, 1) if ranked else None,
+            "top3Pct": round(sum(shares[:3]) / gross * 100, 1),
+        }
+
+    vega_ladder = [{"bucket": b, "vega": round(vega_buckets[b], 2)} for b in ["0-7", "8-21", "22-45", "46-90", "90+"]]
+
+    return {"portfolio": port, "byTicker": by_ticker, "concentration": concentration, "vegaLadder": vega_ladder}
+
+
+def _compute_expiry_calendar(position_greeks, market):
+    """Per-expiry exposure + pin-risk view. Groups option legs by expiry and sums
+    legs, net delta (shares), |gamma|, vega, and notional (|dollar delta|).
+    nearestStrikePct = closest strike to spot among that expiry's legs as a % of
+    spot; pinRisk flags near-dated expiries (<= 10 DTE) within 3% of a strike."""
+    if not position_greeks:
+        return None
+    today = pd.Timestamp.now().normalize()
+    by_exp = {}
+    for pg in position_greeks:
+        if pg.get("posType") == "equity":
+            continue
+        exp = pg.get("expiry")
+        if not exp:
+            continue
+        try:
+            dte = (pd.Timestamp(exp) - today).days
+        except Exception:
+            continue
+        tkr = pg.get("ticker")
+        spot = float((market.get(tkr) or {}).get("price") or 0)
+        strike = float(pg.get("strike") or 0)
+        delta_sh = float(pg.get("delta") or 0)
+        gamma_sh = float(pg.get("gamma") or 0)
+        vega = float(pg.get("vega") or 0)
+        contracts = abs(int(pg.get("contracts") or 0))
+        key = str(exp)[:10]
+        row = by_exp.setdefault(key, {
+            "expiry": key, "dte": dte, "tickers": set(), "legs": 0,
+            "netDelta": 0.0, "absGamma": 0.0, "vega": 0.0, "notional": 0.0, "_nearest": None,
+        })
+        row["tickers"].add(tkr)
+        row["legs"] += contracts
+        row["netDelta"] += delta_sh
+        row["absGamma"] += abs(gamma_sh)
+        row["vega"] += vega
+        row["notional"] += abs(delta_sh * spot)
+        if spot and strike:
+            dist = abs(spot - strike) / spot
+            if row["_nearest"] is None or dist < row["_nearest"]:
+                row["_nearest"] = dist
+
+    out = []
+    for row in by_exp.values():
+        nearest = row.pop("_nearest")
+        nearest_pct = round(nearest * 100, 2) if nearest is not None else None
+        pin = bool(row["dte"] is not None and row["dte"] <= 10 and nearest is not None and nearest <= 0.03)
+        out.append({
+            "expiry": row["expiry"], "dte": row["dte"],
+            "tickers": sorted(row["tickers"]), "tickerCount": len(row["tickers"]),
+            "legs": row["legs"], "netDelta": round(row["netDelta"], 2),
+            "absGamma": round(row["absGamma"], 4), "vega": round(row["vega"], 2),
+            "notional": round(row["notional"], 2), "nearestStrikePct": nearest_pct, "pinRisk": pin,
+        })
+    out.sort(key=lambda r: (r["dte"] if r["dte"] is not None else 1e9))
+    return out
+
+
 @app.route("/api/risk/var", methods=["POST"])
 def risk_var():
     """Compute 1-day and 5-day VaR from a portfolio P&L path array.
@@ -5273,6 +5913,115 @@ def risk_var():
             "confidence": confidence,
             "n_paths": len(pnl),
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/risk/exposure", methods=["POST"])
+def risk_exposure():
+    """Dollar-greeks, concentration, vega ladder, and an expiration/pin-risk
+    calendar from already-computed per-position greeks + market prices."""
+    try:
+        body = request.json or {}
+        position_greeks = body.get("positionGreeks") or body.get("positions") or []
+        market = body.get("marketData", {})
+        return jsonify({
+            "exposure": _compute_exposure_metrics(position_greeks, market),
+            "expiryCalendar": _compute_expiry_calendar(position_greeks, market),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/risk/factors", methods=["POST"])
+def risk_factors():
+    """Realized-vs-implied vol, sector rollup, and benchmark-relative metrics.
+
+    Network-dependent (yfinance) and best-effort: each piece is wrapped so a
+    single failed lookup degrades gracefully (vol row / sector → None / "Unknown",
+    benchmark → None) rather than failing the whole response. Results are cached
+    (price history, sector) so only the first risk-tab load per ticker is slow."""
+    try:
+        body = request.json or {}
+        position_greeks = body.get("positionGreeks") or []
+        market = body.get("marketData", {})
+        tickers = sorted({(pg.get("ticker") or "").upper() for pg in position_greeks if pg.get("ticker")})
+        now_ts = time.time()
+
+        vol_rows = []
+        sector_map = {}
+        for tkr in tickers:
+            closes = None
+            try:
+                cached = _hist_cache.get(tkr)
+                if cached and now_ts - cached[1] < HIST_TTL_S:
+                    closes = cached[0]
+                else:
+                    hist = _yf_call(yf.Ticker(tkr).history, period="6mo")
+                    closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                    _hist_cache[tkr] = (closes, now_ts)
+            except Exception:
+                closes = None
+            iv = float((market.get(tkr) or {}).get("iv") or 0) or None
+            rv20 = _annualized_realized_vol(closes, 20) if closes else None
+            rv60 = _annualized_realized_vol(closes, 60) if closes else None
+            spread = round(iv - rv20, 1) if (iv is not None and rv20 is not None) else None
+            signal = None
+            if spread is not None:
+                signal = "rich" if spread >= 3 else ("cheap" if spread <= -3 else "fair")
+            vol_rows.append({
+                "ticker": tkr, "iv": round(iv, 1) if iv is not None else None,
+                "rv20": rv20, "rv60": rv60, "ivRvSpread": spread, "signal": signal,
+            })
+            try:
+                cached = _sector_cache.get(tkr)
+                if cached and now_ts - cached[1] < SECTOR_TTL_S:
+                    sector_map[tkr] = cached[0]
+                else:
+                    info = _yf_call(lambda: yf.Ticker(tkr).info)
+                    sec = (info or {}).get("sector") or "Unknown"
+                    sector_map[tkr] = sec
+                    _sector_cache[tkr] = (sec, now_ts)
+            except Exception:
+                sector_map[tkr] = "Unknown"
+
+        sectors = _rollup_by_sector(position_greeks, market, sector_map)
+
+        benchmark = None
+        try:
+            cached = _hist_cache.get("__SPY_CLOSES__")
+            if cached and now_ts - cached[1] < HIST_TTL_S:
+                spy_by_date = cached[0]
+            else:
+                spy_hist = _yf_call(yf.Ticker("SPY").history, period="1y")
+                spy_by_date = {str(idx.date()): float(c) for idx, c in spy_hist["Close"].dropna().items()}
+                _hist_cache["__SPY_CLOSES__"] = (spy_by_date, now_ts)
+            conn = get_db()
+            rows = conn.execute(
+                "SELECT timestamp, unrealized_pnl, book_value FROM portfolio_book_snapshots ORDER BY id ASC"
+            ).fetchall()
+            conn.close()
+            book_points = [
+                {"timestamp": r["timestamp"], "unrealizedPnl": r["unrealized_pnl"], "bookValue": r["book_value"]}
+                for r in rows
+            ]
+            benchmark = _compute_benchmark_metrics(book_points, spy_by_date)
+            try:
+                bw_dd = 0.0
+                for pg in position_greeks:
+                    tkr = (pg.get("ticker") or "").upper()
+                    spot = float((market.get(tkr) or {}).get("price") or 0)
+                    bcache = _beta_cache.get(tkr)
+                    beta = bcache[0] if bcache else 1.0
+                    bw_dd += float(pg.get("delta") or 0) * spot * beta
+                benchmark = benchmark or {}
+                benchmark["betaWeightedDollarDelta"] = round(bw_dd, 2)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        return jsonify({"volComparison": vol_rows, "sectors": sectors, "benchmark": benchmark})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

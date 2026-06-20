@@ -32,6 +32,56 @@ export function realizedPnlByTicker() {
   return m;
 }
 
+/** Effective (premium-adjusted) basis toggle — an economic "wheel" basis, NOT tax basis.
+ *  Persisted in localStorage so it survives reloads. */
+export function effBasisOn(): boolean {
+  try { return localStorage.getItem("od_effective_basis") === "1"; } catch { return false; }
+}
+
+/** Effective-basis premium scope: "all" = every realized option dollar on the name;
+ *  "lot" = only premium realized since the current share lot opened. */
+export function effBasisMode(): "all" | "lot" {
+  try { return localStorage.getItem("od_effbasis_mode") === "lot" ? "lot" : "all"; } catch (e) { return "all"; }
+}
+
+/** Realized option premium on a name counted only from the current share lot's open date
+ *  forward (closeDate >= lot open). The assigning put closes on the lot date, so it's included.
+ *  Returns null when there's no known open-lot date (then callers fall back to all-time). */
+function _optionPremiumSinceLot(ticker: string): number | null {
+  const th = state.tradeHistory as any;
+  const key = (ticker || "").toUpperCase();
+  const lot = th?.openShareLots?.[key] || th?.openShareLots?.[ticker];
+  const lotDate = lot?.openDate;
+  if (!lotDate || !Array.isArray(th?.trades)) return null;
+  let sum = 0;
+  for (const t of th.trades) {
+    if ((t.ticker || "").toUpperCase() !== key) continue;
+    if (t.instrument !== "option") continue;
+    if ((t.closeDate || "") >= lotDate) sum += t.pnl || 0;
+  }
+  return sum;
+}
+
+/** Effective $/share for a LONG-share position: broker basis − realized option premium on the
+ *  underlying (the card's "options realized" figure, which excludes still-open legs so it doesn't
+ *  double-count the simulation's option legs). Scope honors effBasisMode(): "all" uses all-time
+ *  premium; "lot" uses only premium since the current lot opened (falling back to all-time when
+ *  no lot date is known). Returns null when not applicable. May go negative ("house money"). */
+export function effectiveBasisFor(ticker: string, avgCost: number, shares: number) {
+  if (!shares || shares <= 0 || !avgCost) return null;
+  let premium = realizedPnlByTicker()[(ticker || "").toUpperCase()]?.options || 0;
+  let scope: "all" | "lot" = "all";
+  const requestedLot = effBasisMode() === "lot";
+  if (requestedLot) {
+    const sinceLot = _optionPremiumSinceLot(ticker);
+    if (sinceLot !== null) { premium = sinceLot; scope = "lot"; }
+  }
+  if (!premium) return null;
+  // fellBack: user asked for "since lot" but no open-lot date was available
+  // (the share buys aren't in the uploaded history) so we used all-time premium.
+  return { effAvg: avgCost - premium / shares, premium, premPerShare: premium / shares, scope, fellBack: requestedLot && scope === "all" };
+}
+
 // Compact signed dollars, e.g. +$1,234 / −$987.
 export function fmtSignedUsd(v) {
   const n = Math.round(v || 0);
@@ -139,16 +189,22 @@ export function renderPortfolio(portfolio, hasMarket) {
     }
     const sortedTickers = sortTickerKeys(Object.keys(tickerMap), tickerMap);
     for (const tkr of sortedTickers) {
-      const tm = tickerMap[tkr];
-      const tg = tm.info;
-      bodyHtml += renderTickerHeader(tg);
-      for (const sec of tm.sections) {
-        if (tm.sections.length > 1 || sec.expLabel !== "Shares") {
-          bodyHtml += `<div style="padding:4px 18px 2px;font-size:11px;color:var(--tx3);font-weight:500;border-top:0.5px dashed var(--bd2)">${esc(sec.expLabel)}${sec.strategy ? ` · <span style="color:var(--accent)" title="${esc(sec.strategy)}">${esc(compressStrategy(sec.strategy))}</span>` : ""}</div>`;
+      try {
+        const tm = tickerMap[tkr];
+        const tg = tm.info;
+        let card = renderTickerHeader(tg);
+        for (const sec of tm.sections) {
+          if (tm.sections.length > 1 || sec.expLabel !== "Shares") {
+            card += `<div style="padding:4px 18px 2px;font-size:11px;color:var(--tx3);font-weight:500;border-top:0.5px dashed var(--bd2)">${esc(sec.expLabel)}${sec.strategy ? ` · <span style="color:var(--accent)" title="${esc(sec.strategy)}">${esc(compressStrategy(sec.strategy))}</span>` : ""}</div>`;
+          }
+          for (const sg of sec.strikes) card += renderStrike({...sg, expiry: sg.expiry || sec.expiry}, tg.posType || sec.posType, tg);
         }
-        for (const sg of sec.strikes) bodyHtml += renderStrike({...sg, expiry: sg.expiry || sec.expiry}, tg.posType || sec.posType, tg);
+        card += `</div></div></div>`;
+        bodyHtml += card;
+      } catch (e) {
+        console.error("renderPortfolio: failed to render ticker", tkr, e);
+        bodyHtml += `<div class="outer" style="padding:10px;margin:6px 0;color:var(--err-tx);font-size:12px">⚠ ${esc(tkr)} — couldn't render this position (see console); other positions are unaffected.</div>`;
       }
-      bodyHtml += `</div></div></div>`;
     }
   } else {
     for (const eg of portfolio.groups) {
@@ -271,13 +327,23 @@ export function renderStrike(sg, posType, tg) {
     const realized = realizedPnlByTicker()[tg.ticker] || null;
     const eqPnlNote = !state.rawHistTexts?.length
       ? `<span style="font-size:10px;color:var(--warn-tx)">Unrealized vs avg cost (upload History for realized P&L)</span>` : "";
+    // Effective (premium-adjusted) basis — economic wheel basis, optional, long shares only.
+    const eff = (effBasisOn() && sg.contracts > 0) ? effectiveBasisFor(tg.ticker, rawBasis, Math.abs(sg.contracts)) : null;
+    const effPnl = eff && tg.price ? Math.round((tg.price - eff.effAvg) * sg.contracts) : 0;
+    const avgLine = eff
+      ? `Avg $${rawBasis.toFixed(2)} <span style="color:var(--accent)">· Eff $${eff.effAvg.toFixed(2)}</span>`
+      : `Avg $${rawBasis ? rawBasis.toFixed(2) : "?"}`;
+    const effLine = eff
+      ? `<span style="font-size:11px" title="Broker basis minus all realized option premium on ${esc(tg.ticker)}. Economic 'wheel' basis — not your tax basis.">Effective basis: <span style="color:${eff.effAvg<0?"var(--accent)":"var(--tx)"}">$${eff.effAvg.toFixed(2)}</span> <span style="font-size:10px;color:var(--tx3)">(broker $${rawBasis.toFixed(2)} ${eff.premium >= 0 ? "−" : "+"} $${Math.abs(Math.round(eff.premium)).toLocaleString()} prem${eff.scope==="lot"?" since lot":(eff.fellBack?" · all-time (no lot date)":"")}${eff.effAvg<0?" · house money":""})</span> · P&L <span style="color:${effPnl>=0?"var(--ok-tx)":"var(--err-tx)"}">${fmtSignedUsd(effPnl)}</span></span>`
+      : "";
     html += `<div class="strike-section" data-leg-id="${esc(tg.ticker)}|equity"><div class="strike-info">
       <div class="strike-top"><span class="strike-val">${dir} ${Math.abs(sg.contracts)} sh</span></div>
-      <span class="cts-val">Avg $${rawBasis ? rawBasis.toFixed(2) : "?"}</span>
+      <span class="cts-val">${avgLine}</span>
     </div>
     <div style="font-family:var(--mono);font-size:13px;color:var(--tx2);display:flex;flex-direction:column;gap:2px">
       <span>Share P&L: <span style="color:${pnl>=0?"var(--ok-tx)":"var(--err-tx)"}">${pnl>=0?"+":""}$${pnl.toLocaleString()}</span> <span style="font-size:10px;color:var(--tx3)">unrealized</span></span>
       ${realized ? `<span style="font-size:11px">Realized P&L: <span style="color:${realized.total>=0?"var(--ok-tx)":"var(--err-tx)"}">${fmtSignedUsd(realized.total)}</span> <span style="font-size:10px;color:var(--tx3)">(shares ${fmtSignedUsd(realized.shares)} · options ${fmtSignedUsd(realized.options)})</span></span>` : ""}
+      ${effLine}
       ${eqPnlNote}
     </div>
     <div class="status-col"><span class="badge ${statusClass}">${esc(sg.status)}</span></div></div>`;
@@ -328,8 +394,9 @@ export function renderStrike(sg, posType, tg) {
 
     const expForLeg = sg.expiry instanceof Date ? sg.expiry : (sg.expiry ? new Date(sg.expiry) : null);
     const legId = legKeyFromPos(tg.ticker, expForLeg || "na", strike, optType);
+    const greeksBtn = `<button class="btn btn-sm btn-ghost btn-greeks" data-g-ticker="${esc(tg.ticker)}" data-g-strike="${strike}" data-g-expiry="${expForLeg ? dateKey(expForLeg) : ""}" data-g-type="${optType}" data-g-cts="${sg.contracts}" data-g-avg="${sg.avgCost || 0}" style="font-size:9px;padding:2px 6px;margin-left:4px" title="Greeks vs time &amp; price">Greeks</button>`;
     html += `<div class="strike-section" data-leg-id="${legId}"><div class="strike-info">
-      <div class="strike-top"><span class="strike-val">$${strike%1===0?strike.toFixed(0):strike}</span><span class="badge ${typeClass}">${optType}</span>${dteBadge}${rollBtn}</div>
+      <div class="strike-top"><span class="strike-val">$${strike%1===0?strike.toFixed(0):strike}</span><span class="badge ${typeClass}">${optType}</span>${dteBadge}${rollBtn}${greeksBtn}</div>
       <span class="cts-val">${sg.contracts>0?"+":""}${sg.contracts} cts</span>${premBadge}</div>`;
     if (sg.lots && sg.lots.length) {
       const srcNote = sg.lotsSource === "portfolio"

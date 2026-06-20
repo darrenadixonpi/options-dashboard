@@ -1,5 +1,6 @@
 import { refreshDeskAlerts, state } from "./04-state";
 import { applyWhatIfGreeks, renderWhatIfList } from "./05-session-api";
+import { fmtDollar } from "./08-simulate";
 
 /**
  * Phase 7 — Tax lots, VaR, Strategy templates, Alert rules, Export, Orders
@@ -89,6 +90,24 @@ export async function loadVaR() {
     });
     const data = await res.json();
     if (data.error) { panel.innerHTML = `<span style="color:var(--err-tx)">${data.error}</span>`; return; }
+
+    // Component VaR breakdown (from the simulation's per-ticker P&L draws)
+    const cv = (state.simResult as any)?.component_var;
+    let compHtml = "";
+    if (cv?.components?.length) {
+      const rows = cv.components.map((c: any) => {
+        const col = c.componentVar >= 0 ? "var(--err-tx)" : "var(--ok-tx)";
+        return `<tr><td>${c.ticker}</td><td style="color:${col};font-weight:500">${fmtDollar(c.componentVar)}</td><td>${c.pct}%</td><td style="color:var(--tx3)">${fmtDollar(c.standaloneVar)}</td></tr>`;
+      }).join("");
+      const pct = Math.round((1 - (cv.confidence ?? 0.95)) * 100);
+      compHtml = `
+      <div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:500;margin-bottom:6px">Component VaR — contribution to tail loss <span style="color:var(--tx3);font-weight:400">(sums to CVaR)</span></div>
+        <table class="hist-tbl"><thead><tr><th>Ticker</th><th>Component</th><th>% of tail</th><th>Standalone</th></tr></thead><tbody>${rows}</tbody></table>
+        <div style="font-size:10px;color:var(--tx3);margin-top:6px">Component = mean ticker loss across the worst ${pct}% of portfolio scenarios (additive). Diversification benefit ${fmtDollar(cv.diversificationBenefit)} = Σ standalone ${fmtDollar(cv.sumStandaloneVar)} − portfolio CVaR ${fmtDollar(cv.portfolioCvar)}.</div>
+      </div>`;
+    }
+
     panel.innerHTML = `
       <div style="display:flex;gap:14px;flex-wrap:wrap">
         <div class="stat" style="border-left:3px solid #f44336">
@@ -110,7 +129,7 @@ export async function loadVaR() {
       </div>
       <div style="font-size:10px;color:var(--tx3);margin-top:6px">
         VaR uses terminal Monte Carlo P&L distribution. 5-day uses √5 scaling. CVaR = mean loss in tail beyond VaR.
-      </div>`;
+      </div>${compHtml}`;
   } catch (e) {
     panel.innerHTML = `<span style="color:var(--err-tx)">Failed: ${e.message}</span>`;
   }
