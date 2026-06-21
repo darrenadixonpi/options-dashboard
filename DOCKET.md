@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.5.0](CHANGELOG.md) — whole-book Greeks: per-underlying aggregate in the Greeks Lab (net Δ/Γ/Θ/vega + curves/surface/Taylor across a ticker's legs), the color greek, persisted views, and a Simulation-tab entry; plus a portfolio market-shock card (parallel + β-weighted vs SPY). (Prior: v1.4.0 — Greeks Lab surfaces & relationships: 3D/heatmap surfaces, Θ–Γ gamma-rent, Taylor P&L, Greek×Greek, in-popup leg switcher, button visibility.)
+**Current release:** [v1.6.0](CHANGELOG.md) — Greeks Lab spread builder (add hypothetical legs to preview a spread's net greeks) and a deeper portfolio market-shock (per-underlying P&L breakdown + vol response). (Prior: v1.5.0 — whole-book Greeks: per-underlying aggregate, color greek, persisted views, Sim-tab entry; portfolio market-shock parallel + β-weighted.)
 
 ---
 

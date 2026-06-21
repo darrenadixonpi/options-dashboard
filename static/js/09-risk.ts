@@ -116,23 +116,44 @@ function _shDte(expiry: any): number {
   const exp = expiry ? (expiry instanceof Date ? expiry : new Date(expiry)) : null;
   return exp && !Number.isNaN(exp.getTime()) ? Math.max(0, Math.ceil((exp.getTime() - today.getTime()) / 86400000)) : 30;
 }
-function _shockPnlAt(movePct: number, daysFwd: number, betaOn: boolean): number {
+function _shockPnlAt(movePct: number, daysFwd: number, betaOn: boolean, volK = 0): number {
   let pnl = 0;
+  const ivShift = -volK * (movePct / 10); // IV up on down moves, down on up moves
   for (const p of (state.positions as any[])) {
     const m: any = (state.marketData as any)?.[p.ticker]; const spot = m?.price; if (!spot) continue;
-    const ivDec = (m.iv || 30) / 100;
     const beta = betaOn ? (_shockBetas[p.ticker] ?? 1) : 1;
     const sS = spot * (1 + beta * movePct / 100);
     if (p.posType === "equity") {
       pnl += (p.shares || p.contracts || 0) * (sS - spot);
     } else {
+      const ivBase = (m.iv || 30) / 100;
+      const ivSh = Math.max(0.01, (m.iv || 30) + ivShift) / 100;
       const dte0 = _shDte(p.expiry);
-      const v0 = bsm(spot, p.strike, ivDec, dte0 / 365, p.optType).value;
-      const v1 = bsm(sS, p.strike, ivDec, Math.max(0, dte0 - daysFwd) / 365, p.optType).value;
+      const v0 = bsm(spot, p.strike, ivBase, dte0 / 365, p.optType).value;
+      const v1 = bsm(sS, p.strike, ivSh, Math.max(0, dte0 - daysFwd) / 365, p.optType).value;
       pnl += (v1 - v0) * 100 * (p.contracts || 0);
     }
   }
   return pnl;
+}
+function _shockByTicker(movePct: number, daysFwd: number, betaOn: boolean, volK: number) {
+  const ivShift = -volK * (movePct / 10);
+  const by: Record<string, number> = {};
+  for (const p of (state.positions as any[])) {
+    const m: any = (state.marketData as any)?.[p.ticker]; const spot = m?.price; if (!spot) continue;
+    const beta = betaOn ? (_shockBetas[p.ticker] ?? 1) : 1;
+    const sS = spot * (1 + beta * movePct / 100);
+    let pnl = 0;
+    if (p.posType === "equity") {
+      pnl = (p.shares || p.contracts || 0) * (sS - spot);
+    } else {
+      const ivBase = (m.iv || 30) / 100, ivSh = Math.max(0.01, (m.iv || 30) + ivShift) / 100;
+      const dte0 = _shDte(p.expiry);
+      pnl = (bsm(sS, p.strike, ivSh, Math.max(0, dte0 - daysFwd) / 365, p.optType).value - bsm(spot, p.strike, ivBase, dte0 / 365, p.optType).value) * 100 * (p.contracts || 0);
+    }
+    by[p.ticker] = (by[p.ticker] || 0) + pnl;
+  }
+  return Object.entries(by).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 }
 function _shockGreeks() {
   let delta = 0, dollarDelta = 0, theta = 0, vega = 0;
@@ -162,16 +183,18 @@ function _drawShock() {
   if (!moveEl || !daysEl) return;
   const betaOn = !!betaEl?.checked;
   const move = +moveEl.value, days = +daysEl.value;
+  const volK = +((document.getElementById("shock-vol") as HTMLInputElement | null)?.value || 0);
   const mvl = document.getElementById("shock-move-val"); if (mvl) mvl.textContent = `${move >= 0 ? "+" : ""}${move}%`;
   const dvl = document.getElementById("shock-days-val"); if (dvl) dvl.textContent = `${days}d`;
+  const vvl = document.getElementById("shock-vol-val"); if (vvl) vvl.textContent = volK ? `±${volK} pts/10%` : "flat";
   const xs: string[] = [], ys: number[] = []; let worst = 1e18, worstAt = 0, markerIdx = 0, best = 1e9, idx = 0;
   for (let mp = -25; mp <= 25.0001; mp += 1) {
-    const pnl = _shockPnlAt(mp, days, betaOn); xs.push(`${mp}`); ys.push(pnl);
+    const pnl = _shockPnlAt(mp, days, betaOn, volK); xs.push(`${mp}`); ys.push(pnl);
     if (pnl < worst) { worst = pnl; worstAt = mp; }
     if (Math.abs(mp - move) < best) { best = Math.abs(mp - move); markerIdx = idx; }
     idx++;
   }
-  const pnlNow = _shockPnlAt(move, days, betaOn);
+  const pnlNow = _shockPnlAt(move, days, betaOn, volK);
   const gk = _shockGreeks();
   const col = (v: number) => (v >= 0 ? "var(--ok-tx)" : "var(--err-tx)");
   const ro = document.getElementById("shock-readout");
@@ -195,8 +218,18 @@ function _drawShock() {
       },
     }),
   });
+  const bd = document.getElementById("shock-breakdown");
+  if (bd) {
+    const rows = _shockByTicker(move, days, betaOn, volK);
+    const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r[1])));
+    bd.innerHTML = `<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">P&L by underlying @ ${move >= 0 ? "+" : ""}${move}%${volK ? `, vol ±${volK}/10%` : ""}</div>` + rows.slice(0, 8).map(([t, v]) => {
+      const w = Math.round(Math.abs(v) / maxAbs * 100);
+      const c = v >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+      return `<div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:2px"><span style="width:52px;color:var(--tx2)">${esc(t)}</span><span style="flex:1;background:var(--bg2);border-radius:3px;height:12px;position:relative"><span style="position:absolute;left:0;top:0;height:12px;width:${w}%;background:${c};opacity:.5;border-radius:3px"></span></span><span style="width:84px;text-align:right;color:${c}">${fmtDollar(v)}</span></div>`;
+    }).join("");
+  }
   const note = document.getElementById("shock-note");
-  if (note) note.innerHTML = `${betaOn ? "Beta-weighted" : "Parallel"} shock of ${(state.positions as any[]).length} positions, ${days}d forward. ${betaOn ? "Each underlying moves β×move (6mo β vs SPY)." : "Every underlying moves the slider %."} The curve bends up (convex) where you're net long gamma, down where short.`;
+  if (note) note.innerHTML = `${betaOn ? "Beta-weighted" : "Parallel"} shock of ${(state.positions as any[]).length} positions, ${days}d forward${volK ? `, IV ±${volK} pts/10% move` : ""}. ${betaOn ? "Each underlying moves β×move (6mo β vs SPY)." : "Every underlying moves the slider %."} The curve bends up (convex) where you're net long gamma, down where short.`;
 }
 export function renderPortfolioShock() {
   const sec = document.getElementById("shock-section") as HTMLElement | null;
@@ -207,6 +240,7 @@ export function renderPortfolioShock() {
     _shockWired = true;
     document.getElementById("shock-move")?.addEventListener("input", _drawShock);
     document.getElementById("shock-days")?.addEventListener("input", _drawShock);
+    document.getElementById("shock-vol")?.addEventListener("input", _drawShock);
     document.getElementById("shock-beta")?.addEventListener("change", () => {
       const on = (document.getElementById("shock-beta") as HTMLInputElement).checked;
       if (on && Object.keys(_shockBetas).length === 0) _shockLoadBetas(); else _drawShock();

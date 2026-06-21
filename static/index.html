@@ -585,9 +585,11 @@
         <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px">
           <label style="flex:1;min-width:180px">Market move: <b id="shock-move-val" style="color:var(--accent)"></b><br><input type="range" id="shock-move" min="-25" max="25" value="0" step="0.5" style="width:100%"></label>
           <label style="flex:1;min-width:180px">Days forward: <b id="shock-days-val" style="color:var(--accent)"></b><br><input type="range" id="shock-days" min="0" max="120" value="0" step="1" style="width:100%"></label>
+          <label style="flex:1;min-width:180px" title="Vol response: implied vol rises this many points per −10% market move (and falls on up moves). 0 = flat vol.">Vol response: <b id="shock-vol-val" style="color:var(--accent)"></b><br><input type="range" id="shock-vol" min="0" max="20" value="0" step="1" style="width:100%"></label>
         </div>
         <div class="summary" id="shock-readout" style="margin-bottom:12px"></div>
         <canvas id="chart-shock" height="200"></canvas>
+        <div id="shock-breakdown" style="margin-top:10px"></div>
         <div id="shock-note" style="font-family:var(--mono);font-size:10.5px;color:var(--tx2);margin-top:8px;line-height:1.5"></div>
       </div>
       <!-- Unusual Activity (#17) -->

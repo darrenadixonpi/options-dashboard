@@ -4,6 +4,12 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-06-21
+
+### Added
+- **Portfolio market-shock — depth.** The shock card now shows a per-underlying **P&L contribution breakdown** (ranked bars) at the current move, and a **vol-response** slider: implied vol rises N points per 10% down-move (and falls on up-moves), applied to the shocked reprice only — so you can model a realistic spot↔vol crash, not just a flat-vol shift.
+- **Greeks Lab — hypothetical legs / spread builder.** Add custom legs (type / strike / DTE / contracts) to the lab scope to preview a spread's net greeks, curves, surface, and Taylor P&L before you trade it; remove each with a click. Works on a single leg or layered on top of a whole-underlying aggregate.
+
 ## [1.5.0] — 2026-06-21
 
 ### Added

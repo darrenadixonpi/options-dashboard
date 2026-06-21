@@ -270,7 +270,7 @@ export function openGreeksLab(pos: any, keep?: any) {
     pos, agg: isAgg, aggTicker: isAgg ? ticker : null,
     refTicker: ticker, refStrike: pos.strike || 0, refExpiry: pos.expiry || null,
     spot0, iv0, dte0, spot: spot0, iv: iv0, dte: dte0,
-    legs: allLegs, legsForScope,
+    legs: allLegs, baseLegs: legsForScope, customLegs: [], legsForScope,
     view: "curves", metric: "theta", xaxis: "dte",
     surfZ: "gamma", surfAxisA: "spot", surfAxisB: "dte", surfMode: "3d",
     surfYaw: -0.6, surfPitch: 0.95,
@@ -287,6 +287,7 @@ export function openGreeksLab(pos: any, keep?: any) {
   body.innerHTML = `
     <div style="margin-bottom:8px;font-family:var(--mono);font-size:11px"><span style="color:var(--tx3)">Scope</span> <select id="gl-leg" style="padding:3px 6px;border-radius:4px;border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px;max-width:100%">${_legOptionsHtml()}</select></div>
     <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">${scopeLabel}</div>
+    <div id="gl-spread" style="margin-bottom:10px"></div>
     <div style="font-size:10px;color:var(--tx3);margin-bottom:12px;line-height:1.4">Theoretical Black-Scholes (r=${(RISK_FREE * 100).toFixed(1)}%). All readouts are <b>net position</b> greeks (per-share × 100 × contracts, summed over the scope). ${isAgg ? "Aggregate: one IV and one time axis advance every leg of the underlying together." : ""} Higher-order greeks are finite-differenced.</div>
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px">
       <label style="flex:1;min-width:160px">${dteLabelTxt}: <b id="gl-dte-val" style="color:var(--accent)"></b><br><input type="range" id="gl-dte" min="0" max="${dte0}" value="${dte0}" step="1" style="width:100%"></label>
@@ -354,6 +355,7 @@ export function openGreeksLab(pos: any, keep?: any) {
     window.addEventListener("mouseup", () => { _glDrag = false; const s = document.getElementById("gl-surface"); if (s) s.style.cursor = "grab"; });
   }
 
+  _glRenderSpread();
   _glSetView(GL.view);
 }
 
@@ -436,6 +438,41 @@ function _glReadout() {
     <div class="stat" title="Charm: Δ change per day toward expiry"><div class="stat-label">Charm</div><div class="stat-val" style="font-size:14px;color:var(--tx2)">${r.charm.toFixed(1)}</div><div class="stat-sub">Δ / day</div></div>
     <div class="stat" title="Vomma: vega change per +1 vol point"><div class="stat-label">Vomma</div><div class="stat-val" style="font-size:14px;color:var(--tx2)">${fmtDollar(r.vomma)}</div><div class="stat-sub">Vega / vol pt</div></div>
     <div class="stat" title="Color: gamma change per day toward expiry"><div class="stat-label">Color</div><div class="stat-val" style="font-size:14px;color:var(--tx2)">${r.color.toFixed(3)}</div><div class="stat-sub">Γ / day</div></div>`;
+}
+
+// Hypothetical-leg / spread builder: legsForScope = real base legs + user-added legs.
+function _glRebuildScope() {
+  GL.legsForScope = GL.baseLegs.concat(GL.customLegs.map((c: any) => ({ K: c.K, optType: c.optType, contracts: c.contracts, dte0: c.dte0, avg: 0 })));
+}
+function _glRenderSpread() {
+  const el = document.getElementById("gl-spread");
+  if (!el) return;
+  const chips = GL.customLegs.map((c: any, i: number) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;margin:0 4px 4px 0;border:1px solid var(--accent);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--accent)">${c.contracts > 0 ? "+" : ""}${c.contracts} ${esc(c.optType)} $${c.K} ${c.dte0}d <b class="gl-hx" data-i="${i}" style="cursor:pointer">×</b></span>`).join("");
+  const st = "padding:3px 5px;border-radius:4px;border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px";
+  el.innerHTML = `${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ""}
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:11px;color:var(--tx3)">
+      <span title="Add a hypothetical leg to model a spread's net greeks before trading">+ leg</span>
+      <select id="gl-h-type" style="${st}"><option value="Put">Put</option><option value="Call">Call</option></select>
+      <input id="gl-h-strike" type="number" step="0.5" placeholder="strike" style="${st};width:68px">
+      <input id="gl-h-dte" type="number" step="1" placeholder="DTE" value="${GL.dte0}" style="${st};width:58px">
+      <input id="gl-h-cts" type="number" step="1" placeholder="cts" value="1" style="${st};width:52px">
+      <button class="btn btn-sm" id="gl-h-add" type="button">Add</button>
+    </div>`;
+  document.getElementById("gl-h-add")?.addEventListener("click", () => {
+    const K = parseFloat((document.getElementById("gl-h-strike") as HTMLInputElement).value);
+    const dte0 = Math.max(0, parseInt((document.getElementById("gl-h-dte") as HTMLInputElement).value, 10) || 0);
+    const cts = parseInt((document.getElementById("gl-h-cts") as HTMLInputElement).value, 10) || 0;
+    const optType = (document.getElementById("gl-h-type") as HTMLSelectElement).value;
+    if (!(K > 0) || cts === 0) return;
+    GL.customLegs.push({ K, optType, contracts: cts, dte0 });
+    _glRebuildScope(); _glRenderSpread(); _glRender();
+  });
+  el.querySelectorAll(".gl-hx").forEach(x => x.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const i = parseInt((x as HTMLElement).dataset.i || "-1", 10);
+    if (i >= 0) { GL.customLegs.splice(i, 1); _glRebuildScope(); _glRenderSpread(); _glRender(); }
+  }));
 }
 
 function _glRender() {
