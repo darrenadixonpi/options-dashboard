@@ -4,6 +4,19 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-06-20
+
+### Added
+- **Greeks Lab — relationship & surface views.** The per-leg Black-Scholes lab gains a view switcher with four modes beyond the original curves: **Θ–Γ gamma-rent** (theta overlaid on its −½σ²S²Γ identity, with the gamma breakeven move vs the 1σ implied daily move — a read on whether theta fairly pays for gamma); **Surface** (value or any Greek over two of {spot, DTE, IV}, as a drag-to-rotate 3D wireframe or a 2D heatmap with contour bands — hand-rolled canvas, no new dependencies); **Taylor P&L** (decomposes a what-if move into Δ/Γ/Θ/vega/vanna/vomma/charm/speed contributions plus the residual versus an exact reprice); and **Greek×Greek** (any Greek plotted parametrically against another as spot or DTE sweeps). All ride the existing client-side BSM, so they add no server load.
+- **Switch legs inside the Greeks Lab.** A Leg dropdown in the popup lists every option leg in the book; choosing one re-loads the lab for that leg while preserving your current view, surface orientation, and link/skew settings — no need to close it and hunt for another leg's button.
+
+### Changed
+- **More visible action buttons.** The per-leg **Roll** and **Greeks** buttons are now bordered chips (Greeks accent-outlined) instead of faint ghost text, and the shared `.btn-ghost` style platform-wide gets brighter text plus a subtle border, so secondary buttons are easier to spot.
+
+### Fixes
+- **Greeks / Roll no longer jump you to the Simulation tab.** The clickable ticker block treated a click anywhere — including on its Roll/Greeks buttons — as "send to Simulation." It now ignores clicks on buttons and other controls, so opening the Greeks Lab (or rolling) keeps you on Positions with the modal on top.
+- **Portfolio P&L histogram pan/zoom survives a reload.** `saveSession` stripped `portfolio_pnl` (the raw Monte Carlo paths) to save space, so a restored session drew the histogram from the saved bins but had nothing to re-bin — wheel/drag zoom silently did nothing (the canvas never got its `od-panzoom` handlers). The paths are now persisted, rounded to whole dollars to stay compact; the existing quota fallback still drops `simResult` if the session won't fit (then the "re-run sim for fine zoom" path applies). Surfaced once the reload fix started rendering the restored simulation instead of leaving it blank.
+
 ## [1.3.0] — 2026-06-20
 
 Analytics & risk release on top of v1.2.0. Adds three analytics tiers (drawdown / cohorts / cumulative attribution; component VaR, dollar-greeks & pin-risk calendar; implied-vs-realized vol, sector rollup & SPY benchmark), a premium-adjusted "effective" cost basis (All / Since-lot), and an interactive per-leg **Greeks Lab** (client-side Black-Scholes with higher-order Greeks and a spot↔vol link). Also completes the TypeScript / ES-module migration, ships IBKR Flex sync and in-app Schwab setup, a realized-P&L correctness pass, and reload-UX fixes. tsc + esbuild + full pytest suite green.

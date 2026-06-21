@@ -241,7 +241,10 @@ export function renderPortfolio(portfolio, hasMarket) {
 
   // Wire up clickable ticker rows → simulation fan chart when available
   document.querySelectorAll(".tk-block.clickable").forEach(el => {
-    el.addEventListener("click", () => jumpToTickerFromPositions((el as HTMLElement).dataset.ticker));
+    el.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("button, a, input, select")) return; // don't hijack Roll/Greeks/control clicks
+      jumpToTickerFromPositions((el as HTMLElement).dataset.ticker);
+    });
   });
 
   // Wire up roll buttons (#11)
@@ -364,7 +367,7 @@ export function renderStrike(sg, posType, tg) {
         contracts: sg.contracts,
         avgCost: sg.avgCost || 0,
       };
-      rollBtn = `<button class="btn btn-sm btn-ghost btn-roll" style="font-size:9px;padding:2px 6px;margin-left:4px" data-roll-key="${rollKey}">Roll</button>`;
+      rollBtn = `<button class="btn-leg btn-roll" data-roll-key="${rollKey}">Roll</button>`;
     }
     let premBadge = "";
     if (sg.contracts < 0 && (sg.lots?.length || sg.avgCost > 0)) {
@@ -394,7 +397,7 @@ export function renderStrike(sg, posType, tg) {
 
     const expForLeg = sg.expiry instanceof Date ? sg.expiry : (sg.expiry ? new Date(sg.expiry) : null);
     const legId = legKeyFromPos(tg.ticker, expForLeg || "na", strike, optType);
-    const greeksBtn = `<button class="btn btn-sm btn-ghost btn-greeks" data-g-ticker="${esc(tg.ticker)}" data-g-strike="${strike}" data-g-expiry="${expForLeg ? dateKey(expForLeg) : ""}" data-g-type="${optType}" data-g-cts="${sg.contracts}" data-g-avg="${sg.avgCost || 0}" style="font-size:9px;padding:2px 6px;margin-left:4px" title="Greeks vs time &amp; price">Greeks</button>`;
+    const greeksBtn = `<button class="btn-leg btn-greeks" data-g-ticker="${esc(tg.ticker)}" data-g-strike="${strike}" data-g-expiry="${expForLeg ? dateKey(expForLeg) : ""}" data-g-type="${optType}" data-g-cts="${sg.contracts}" data-g-avg="${sg.avgCost || 0}" title="Greeks vs time &amp; price">Greeks</button>`;
     html += `<div class="strike-section" data-leg-id="${legId}"><div class="strike-info">
       <div class="strike-top"><span class="strike-val">$${strike%1===0?strike.toFixed(0):strike}</span><span class="badge ${typeClass}">${optType}</span>${dteBadge}${rollBtn}${greeksBtn}</div>
       <span class="cts-val">${sg.contracts>0?"+":""}${sg.contracts} cts</span>${premBadge}</div>`;

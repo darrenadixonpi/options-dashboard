@@ -442,8 +442,12 @@ export function saveSession() {
   const brokerBtn = document.querySelector(".broker-btn.active") as HTMLElement | null;
   let simForSave = state.simResult;
   if (simForSave?.portfolio_pnl) {
-    simForSave = { ...simForSave };
-    delete simForSave.portfolio_pnl;
+    // Keep the raw P&L paths so the histogram's pan/zoom survives a reload — but
+    // round to whole dollars to keep the saved session compact. (Bin widths are
+    // far larger than $1, and VaR is in the thousands, so rounding is harmless.)
+    // If the session still won't fit, the quota fallback below drops simResult
+    // entirely and flags simNeedsRerun.
+    simForSave = { ...simForSave, portfolio_pnl: simForSave.portfolio_pnl.map((x: number) => Math.round(x)) };
   }
   const payload = {
     rawPosTexts: state.rawPosTexts,

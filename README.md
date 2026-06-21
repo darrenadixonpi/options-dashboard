@@ -1,6 +1,6 @@
 # Options Dashboard
 
-**v1.3.0** — Local web app for your options portfolio: live market data, Greeks, Monte Carlo simulation, risk decomposition (component VaR, dollar-greeks, pin-risk calendar), factor analytics (implied-vs-realized vol, sector exposure, SPY benchmark), a per-leg interactive **Greeks Lab**, drawdown & trade-cohort analytics, premium-adjusted cost basis, orders & rules, tax lots, a trade journal, and broker position sync.
+**v1.4.0** — Local web app for your options portfolio: live market data, Greeks, Monte Carlo simulation, risk decomposition (component VaR, dollar-greeks, pin-risk calendar), factor analytics (implied-vs-realized vol, sector exposure, SPY benchmark), a per-leg interactive **Greeks Lab** (3D Greek surfaces, Θ–Γ gamma-rent, Taylor P&L & cross-Greek views), drawdown & trade-cohort analytics, premium-adjusted cost basis, orders & rules, tax lots, a trade journal, and broker position sync.
 
 > **Scope:** Personal desk tool (localhost). Fidelity and Schwab CSV imports are both validated on real exports (including merged Fidelity + Schwab history as one continuous journal); IBKR parses via CSV (fixture-tested). The Schwab OAuth API client is built and activates once developer-app credentials are approved — see [docs/SCHWAB_API.md](docs/SCHWAB_API.md). All brokers share one adapter layer (`brokers/`).
 
@@ -108,7 +108,7 @@ docker compose up -d        # background
 
 Open **http://localhost:5000**. Data persists in `portfolio.db` in the project root.
 
-Release: **v1.3.0** — see [CHANGELOG.md](CHANGELOG.md).
+Release: **v1.4.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Optional Windows portable (.exe)
 
@@ -162,7 +162,7 @@ All routes are on `http://localhost:5000` by default.
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/version` | `{"name":"options-dashboard","version":"1.3.0"}` |
+| `GET` | `/api/version` | `{"name":"options-dashboard","version":"1.4.0"}` |
 | `GET` | `/api/brokers` | List brokers + capabilities; `POST /api/brokers/<key>/positions` to import/sync |
 | `POST` | `/api/market-data` | Prices + IV for a list of tickers |
 | `POST` | `/api/greeks` | BSM greeks + beta-weighted delta |

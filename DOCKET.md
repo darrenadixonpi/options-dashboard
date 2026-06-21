@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.3.0](CHANGELOG.md) — analytics & risk: drawdown/cohorts/attribution, component VaR + dollar-greeks + pin-risk calendar, IV-vs-RV/sector/SPY-benchmark, premium-adjusted cost basis, interactive Greeks Lab; plus TS/ES-module completion, IBKR Flex, in-app Schwab setup, realized-P&L correctness, reload-UX fixes. (Prior: v1.2.0 — Phases 4–7: broker integration, orders & rules, tax lots & VaR, journal v2.)
+**Current release:** [v1.4.0](CHANGELOG.md) — Greeks Lab v2: rotatable 3D / heatmap Greek surfaces, Θ–Γ gamma-rent, Taylor P&L attribution, Greek×Greek scatter, and an in-popup leg switcher; plus more visible action buttons and fixes (Greeks/Roll no longer switch tabs; histogram zoom survives reload). (Prior: v1.3.0 — analytics & risk: drawdown/cohorts/attribution, component VaR + dollar-greeks + pin-risk calendar, IV-vs-RV/sector/SPY-benchmark, premium-adjusted cost basis, interactive Greeks Lab.)
 
 ---
 
