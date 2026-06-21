@@ -3,6 +3,7 @@ import { chartInteractionDefaults, deepMergeChartOpts } from "./03-chart-utils";
 import { chartInstances, destroyChart, renderPositionsRail, state } from "./04-state";
 import { applyWhatIfGreeks, fetchJson, getMergedPositions, renderWhatIfList } from "./05-session-api";
 import { fmtDollar } from "./08-simulate";
+import { bsm } from "./14-greeks-lab";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Risk Tab (#14, #16, #17)
@@ -104,6 +105,114 @@ export function enableRiskTab() {
   }
 
   loadRiskExposure();
+  renderPortfolioShock();
+}
+
+// ── Portfolio market-shock (whole-book reprice vs a market move) ───────────
+let _shockWired = false;
+let _shockBetas: Record<string, number> = {};
+function _shDte(expiry: any): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const exp = expiry ? (expiry instanceof Date ? expiry : new Date(expiry)) : null;
+  return exp && !Number.isNaN(exp.getTime()) ? Math.max(0, Math.ceil((exp.getTime() - today.getTime()) / 86400000)) : 30;
+}
+function _shockPnlAt(movePct: number, daysFwd: number, betaOn: boolean): number {
+  let pnl = 0;
+  for (const p of (state.positions as any[])) {
+    const m: any = (state.marketData as any)?.[p.ticker]; const spot = m?.price; if (!spot) continue;
+    const ivDec = (m.iv || 30) / 100;
+    const beta = betaOn ? (_shockBetas[p.ticker] ?? 1) : 1;
+    const sS = spot * (1 + beta * movePct / 100);
+    if (p.posType === "equity") {
+      pnl += (p.shares || p.contracts || 0) * (sS - spot);
+    } else {
+      const dte0 = _shDte(p.expiry);
+      const v0 = bsm(spot, p.strike, ivDec, dte0 / 365, p.optType).value;
+      const v1 = bsm(sS, p.strike, ivDec, Math.max(0, dte0 - daysFwd) / 365, p.optType).value;
+      pnl += (v1 - v0) * 100 * (p.contracts || 0);
+    }
+  }
+  return pnl;
+}
+function _shockGreeks() {
+  let delta = 0, dollarDelta = 0, theta = 0, vega = 0;
+  for (const p of (state.positions as any[])) {
+    const m: any = (state.marketData as any)?.[p.ticker]; const spot = m?.price; if (!spot) continue;
+    const ivDec = (m.iv || 30) / 100;
+    if (p.posType === "equity") {
+      const q = p.shares || p.contracts || 0; delta += q; dollarDelta += q * spot;
+    } else {
+      const g = bsm(spot, p.strike, ivDec, _shDte(p.expiry) / 365, p.optType); const mult = 100 * (p.contracts || 0);
+      delta += g.delta * mult; dollarDelta += g.delta * mult * spot;
+      theta += g.theta * mult; vega += g.vega * mult;
+    }
+  }
+  return { delta, dollarDelta, theta, vega };
+}
+async function _shockLoadBetas() {
+  const tickers = [...new Set((state.positions as any[]).map(p => p.ticker))];
+  const { ok, data } = await fetchJson("/api/risk/betas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tickers }) });
+  if (ok && data && data.betas) _shockBetas = data.betas;
+  _drawShock();
+}
+function _drawShock() {
+  const betaEl = document.getElementById("shock-beta") as HTMLInputElement | null;
+  const moveEl = document.getElementById("shock-move") as HTMLInputElement | null;
+  const daysEl = document.getElementById("shock-days") as HTMLInputElement | null;
+  if (!moveEl || !daysEl) return;
+  const betaOn = !!betaEl?.checked;
+  const move = +moveEl.value, days = +daysEl.value;
+  const mvl = document.getElementById("shock-move-val"); if (mvl) mvl.textContent = `${move >= 0 ? "+" : ""}${move}%`;
+  const dvl = document.getElementById("shock-days-val"); if (dvl) dvl.textContent = `${days}d`;
+  const xs: string[] = [], ys: number[] = []; let worst = 1e18, worstAt = 0, markerIdx = 0, best = 1e9, idx = 0;
+  for (let mp = -25; mp <= 25.0001; mp += 1) {
+    const pnl = _shockPnlAt(mp, days, betaOn); xs.push(`${mp}`); ys.push(pnl);
+    if (pnl < worst) { worst = pnl; worstAt = mp; }
+    if (Math.abs(mp - move) < best) { best = Math.abs(mp - move); markerIdx = idx; }
+    idx++;
+  }
+  const pnlNow = _shockPnlAt(move, days, betaOn);
+  const gk = _shockGreeks();
+  const col = (v: number) => (v >= 0 ? "var(--ok-tx)" : "var(--err-tx)");
+  const ro = document.getElementById("shock-readout");
+  if (ro) ro.innerHTML = `
+    <div class="stat"><div class="stat-label">P&L @ ${move >= 0 ? "+" : ""}${move}%</div><div class="stat-val" style="font-size:18px;color:${col(pnlNow)}">${fmtDollar(pnlNow)}</div></div>
+    <div class="stat"><div class="stat-label">Net $Δ</div><div class="stat-val" style="font-size:16px;color:#90caf9">${fmtDollar(gk.dollarDelta)}</div><div class="stat-sub">${gk.delta.toFixed(0)} sh-eq</div></div>
+    <div class="stat"><div class="stat-label">Net Θ /day</div><div class="stat-val" style="font-size:16px;color:#f5c518">${fmtDollar(gk.theta)}</div></div>
+    <div class="stat"><div class="stat-label">Net Vega</div><div class="stat-val" style="font-size:16px;color:#4dd0e1">${fmtDollar(gk.vega)}</div></div>
+    <div class="stat"><div class="stat-label">Worst in ±25%</div><div class="stat-val" style="font-size:16px;color:var(--err-tx)">${fmtDollar(worst)}</div><div class="stat-sub">at ${worstAt >= 0 ? "+" : ""}${worstAt}%</div></div>`;
+  const canvas = document.getElementById("chart-shock");
+  destroyChart("chart-shock");
+  if (canvas) chartInstances["chart-shock"] = new Chart(canvas, {
+    type: "line",
+    data: { labels: xs, datasets: [{ label: "Book P&L ($)", data: ys, borderColor: "#20c7c7", backgroundColor: "transparent", borderWidth: 2, tension: 0.2, pointRadius: ys.map((_, i) => i === markerIdx ? 5 : 0), pointBackgroundColor: "#20c7c7", pointBorderColor: "#fff" }] },
+    options: deepMergeChartOpts(chartInteractionDefaults(), {
+      responsive: true, animation: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: (it: any) => `Market ${it[0]?.label}%`, label: (ctx: any) => `Book P&L: ${fmtDollar(ctx.parsed.y)}` } } },
+      scales: {
+        x: { title: { display: true, text: `Market move % (${betaOn ? "β-weighted" : "parallel"})`, color: "#9b9b96" }, ticks: { maxTicksLimit: 11, color: "#9b9b96", font: { size: 9 } }, grid: { display: false } },
+        y: { title: { display: true, text: "Book P&L ($)", color: "#9b9b96" }, ticks: { color: "#9b9b96", font: { size: 9 } }, grid: { color: "rgba(255,255,255,0.05)" } },
+      },
+    }),
+  });
+  const note = document.getElementById("shock-note");
+  if (note) note.innerHTML = `${betaOn ? "Beta-weighted" : "Parallel"} shock of ${(state.positions as any[]).length} positions, ${days}d forward. ${betaOn ? "Each underlying moves β×move (6mo β vs SPY)." : "Every underlying moves the slider %."} The curve bends up (convex) where you're net long gamma, down where short.`;
+}
+export function renderPortfolioShock() {
+  const sec = document.getElementById("shock-section") as HTMLElement | null;
+  if (!sec) return;
+  if (!(state.positions as any[])?.length || !state.marketData) { sec.hidden = true; return; }
+  sec.hidden = false;
+  if (!_shockWired) {
+    _shockWired = true;
+    document.getElementById("shock-move")?.addEventListener("input", _drawShock);
+    document.getElementById("shock-days")?.addEventListener("input", _drawShock);
+    document.getElementById("shock-beta")?.addEventListener("change", () => {
+      const on = (document.getElementById("shock-beta") as HTMLInputElement).checked;
+      if (on && Object.keys(_shockBetas).length === 0) _shockLoadBetas(); else _drawShock();
+    });
+  }
+  _drawShock();
 }
 
 export async function loadRiskMatrix() {

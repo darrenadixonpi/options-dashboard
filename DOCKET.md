@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.4.0](CHANGELOG.md) — Greeks Lab v2: rotatable 3D / heatmap Greek surfaces, Θ–Γ gamma-rent, Taylor P&L attribution, Greek×Greek scatter, and an in-popup leg switcher; plus more visible action buttons and fixes (Greeks/Roll no longer switch tabs; histogram zoom survives reload). (Prior: v1.3.0 — analytics & risk: drawdown/cohorts/attribution, component VaR + dollar-greeks + pin-risk calendar, IV-vs-RV/sector/SPY-benchmark, premium-adjusted cost basis, interactive Greeks Lab.)
+**Current release:** [v1.5.0](CHANGELOG.md) — whole-book Greeks: per-underlying aggregate in the Greeks Lab (net Δ/Γ/Θ/vega + curves/surface/Taylor across a ticker's legs), the color greek, persisted views, and a Simulation-tab entry; plus a portfolio market-shock card (parallel + β-weighted vs SPY). (Prior: v1.4.0 — Greeks Lab surfaces & relationships: 3D/heatmap surfaces, Θ–Γ gamma-rent, Taylor P&L, Greek×Greek, in-popup leg switcher, button visibility.)
 
 ---
 

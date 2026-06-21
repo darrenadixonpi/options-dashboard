@@ -856,6 +856,48 @@ def compute_greeks():
         return jsonify({"error": str(e)}), 500
 
 
+def _compute_betas(tickers):
+    """Per-ticker ~6mo beta vs SPY, reusing the shared _beta_cache (TTL)."""
+    out = {}
+    try:
+        now_ts = time.time()
+        if _beta_cache.get("__SPY__") and now_ts - _beta_cache["__SPY__"][1] < BETA_SPY_TTL_S:
+            _, spy_ret = _beta_cache["__SPY__"][0]
+        else:
+            spy_hist = _yf_call(yf.Ticker("SPY").history, period="6mo")
+            spy_price = float(spy_hist["Close"].iloc[-1])
+            spy_ret = np.log(spy_hist["Close"] / spy_hist["Close"].shift(1)).dropna()
+            _beta_cache["__SPY__"] = ((spy_price, spy_ret), now_ts)
+        for tkr in tickers:
+            cached = _beta_cache.get(tkr)
+            if cached and now_ts - cached[1] < BETA_TTL_S:
+                out[tkr] = round(cached[0], 3)
+                continue
+            try:
+                tkr_hist = _yf_call(yf.Ticker(tkr).history, period="6mo")
+                tkr_ret = np.log(tkr_hist["Close"] / tkr_hist["Close"].shift(1)).dropna()
+                aligned = pd.DataFrame({"spy": spy_ret, "tkr": tkr_ret}).dropna()
+                if len(aligned) >= 30:
+                    cov = np.cov(aligned["tkr"], aligned["spy"])
+                    beta = float(cov[0, 1] / cov[1, 1])
+                else:
+                    beta = 1.0
+            except Exception:
+                beta = 1.0
+            _beta_cache[tkr] = (beta, now_ts)
+            out[tkr] = round(beta, 3)
+    except Exception as e:
+        print(f"betas error: {e}", file=sys.stderr)
+    return out
+
+
+@app.route("/api/risk/betas", methods=["POST"])
+def risk_betas():
+    """Per-ticker beta vs SPY for the portfolio market-shock view (client-side)."""
+    tickers = (request.json or {}).get("tickers", [])
+    return jsonify({"betas": _compute_betas(tickers)})
+
+
 # ─── API: Events / Earnings Calendar (#8) ─────────────────────────────────
 
 @app.route("/api/events", methods=["POST"])

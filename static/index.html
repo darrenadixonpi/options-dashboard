@@ -451,6 +451,7 @@
               <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-expand-all">Expand all</button>
               <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-collapse-all">Collapse all</button>
               <button type="button" class="btn btn-sm btn-ghost chart-export-btn" data-export-all-paths title="Export all fan chart PNGs">Export all fan charts</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-sim-greeks" title="Open the Greeks Lab for the focused ticker (aggregate if it has multiple legs)">Greeks Lab ▸</button>
               <label style="font-size:11px;color:var(--tx2);display:flex;align-items:center;gap:6px;margin-left:auto">
                 Focus
                 <select id="sim-focus-select" style="padding:4px 8px;border-radius:var(--radius);border:1px solid var(--bd);background:var(--bg2);color:var(--tx);font-family:var(--mono);font-size:11px">
@@ -573,6 +574,21 @@
           <div style="font-size:10px;color:var(--tx3)">Returns-based on tracked book snapshots · position changes add noise</div>
         </div>
         <div class="summary" id="benchmark-stats"></div>
+      </div>
+      <!-- Portfolio market-shock -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="shock-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Portfolio market-shock</div>
+          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--tx2);cursor:pointer" title="Off: every underlying moves the slider %. On: each moves β×move, using 6-month betas vs SPY (fetched once)."><input type="checkbox" id="shock-beta"> β-weight vs SPY</label>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:10px">Reprices the whole book — shares + every option leg — for a market move, decaying all legs forward together. Client-side Black-Scholes; no server round-trip except the one-time beta fetch.</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-family:var(--mono);font-size:11px">
+          <label style="flex:1;min-width:180px">Market move: <b id="shock-move-val" style="color:var(--accent)"></b><br><input type="range" id="shock-move" min="-25" max="25" value="0" step="0.5" style="width:100%"></label>
+          <label style="flex:1;min-width:180px">Days forward: <b id="shock-days-val" style="color:var(--accent)"></b><br><input type="range" id="shock-days" min="0" max="120" value="0" step="1" style="width:100%"></label>
+        </div>
+        <div class="summary" id="shock-readout" style="margin-bottom:12px"></div>
+        <canvas id="chart-shock" height="200"></canvas>
+        <div id="shock-note" style="font-family:var(--mono);font-size:10.5px;color:var(--tx2);margin-top:8px;line-height:1.5"></div>
       </div>
       <!-- Unusual Activity (#17) -->
       <div class="outer" style="padding:20px;margin-top:20px" id="unusual-section" hidden>

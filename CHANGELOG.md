@@ -4,6 +4,17 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-06-21
+
+### Added
+- **Greeks Lab — whole-underlying aggregate.** The Scope dropdown now offers, for any ticker with ≥2 option legs, an "all N legs (net)" view that sums Δ/Γ/Θ/vega — and value, Taylor, surface, and Greek×Greek — across the underlying's legs over one shared spot and a single days-forward time axis (each leg keeps its own strike/expiry). Single-leg and aggregate share one net-position engine.
+- **Color greek (∂Γ/∂t).** Gamma decay added to the readout and selectable as a surface Z / scatter axis.
+- **Portfolio market-shock (Risk tab).** A new card reprices the whole book — shares and every option leg — across a ±25% market move and a days-forward axis, entirely client-side, showing the P&L curve (gamma convexity), net $Δ / Θ / vega, and the worst case in range. Parallel by default; a β-weight toggle moves each underlying by its 6-month beta vs SPY via a new `/api/risk/betas` endpoint.
+- **Greeks Lab from the Simulation tab.** A "Greeks Lab ▸" button in the per-ticker sim toolbar opens the lab for the focused ticker — aggregated across its legs when it has more than one.
+
+### Changed
+- **Greeks Lab now speaks in net-position terms.** Every view (not just the readout) shows position greeks (×100×contracts), so single-leg and aggregate are directly comparable. The lab also remembers your last view, 3D surface orientation, and link/skew across opens.
+
 ## [1.4.0] — 2026-06-20
 
 ### Added
