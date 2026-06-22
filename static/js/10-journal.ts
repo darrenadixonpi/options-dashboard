@@ -361,6 +361,7 @@ export function renderDrawdownPanel(dd: any) {
 // ─── Performance cohorts ─────────────────────────────────────────────────────
 
 let cohortDim = "byUnderlying";
+let cohortSort: { col: string; dir: "asc" | "desc" } = { col: "totalPnl", dir: "desc" };
 const COHORT_DIM_LABELS: Record<string, string> = {
   byUnderlying: "Underlying",
   byStrategy: "Strategy",
@@ -397,9 +398,17 @@ export function renderCohorts(cohorts: any) {
 function _cohortTable(rows: any[], dim: string): string {
   if (!rows.length) return '<span style="color:var(--tx3);font-size:11px">No data for this dimension.</span>';
   const keyHdr = COHORT_DIM_LABELS[dim] || "Group";
+  const sc = cohortSort.col, sdir = cohortSort.dir;
+  const sorted = rows.slice().sort((a, b) => {
+    if (sc === "key") { const r = String(a.key).localeCompare(String(b.key)); return sdir === "asc" ? r : -r; }
+    const av = Number(a[sc]) || 0, bv = Number(b[sc]) || 0; return sdir === "asc" ? av - bv : bv - av;
+  });
+  const ind = (c: string) => sc === c ? (sdir === "asc" ? " ▲" : " ▼") : "";
+  const th = (c: string, label: string) => `<th class="cohort-th" data-sort="${c}" style="cursor:pointer;user-select:none" title="Sort by ${esc(label)}">${esc(label)}${ind(c)}</th>`;
   let html = '<table class="hist-tbl"><thead><tr>'
-    + `<th>${esc(keyHdr)}</th><th>Trades</th><th>Win%</th><th>Total P&L</th><th>Avg</th><th>PF</th><th>Avg Hold</th></tr></thead><tbody>`;
-  for (const r of rows) {
+    + th("key", keyHdr) + th("trades", "Trades") + th("winRate", "Win%") + th("totalPnl", "Total P&L") + th("avgPnl", "Avg") + th("profitFactor", "PF") + th("avgHoldDays", "Avg Hold")
+    + "</tr></thead><tbody>";
+  for (const r of sorted) {
     const pnlCol = r.totalPnl >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
     const winCol = r.winRate >= 50 ? "var(--ok-tx)" : "var(--err-tx)";
     const pf = r.profitFactor >= 999 ? "∞" : r.profitFactor;
@@ -414,6 +423,16 @@ document.getElementById("cohort-dim-toggle")?.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest("[data-cohort-dim]") as HTMLElement | null;
   if (!btn || (btn as HTMLButtonElement).disabled) return;
   cohortDim = btn.dataset.cohortDim || "byUnderlying";
+  renderCohorts((state.tradeHistory as any)?.stats?.cohorts);
+});
+
+// Click a cohort column header to sort (toggle asc/desc).
+document.getElementById("cohorts-table-container")?.addEventListener("click", (e) => {
+  const th = (e.target as HTMLElement).closest(".cohort-th") as HTMLElement | null;
+  if (!th) return;
+  const col = th.dataset.sort || "totalPnl";
+  if (cohortSort.col === col) cohortSort.dir = cohortSort.dir === "asc" ? "desc" : "asc";
+  else cohortSort = { col, dir: col === "key" ? "asc" : "desc" };
   renderCohorts((state.tradeHistory as any)?.stats?.cohorts);
 });
 

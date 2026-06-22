@@ -218,6 +218,8 @@ def compute_tax_lots(
 
                 event = {
                     "ticker": ticker,
+                    "opt_type": opt_type,
+                    "strike": strike,
                     "description": desc,
                     "open_date": str(open_date_val) if open_date_val else "",
                     "close_date": str(close_d) if close_d else "",
@@ -240,44 +242,88 @@ def compute_tax_lots(
                 if lot["remaining"] == 0:
                     pool.pop(0)
 
-    # ─── Wash-sale pass ──────────────────────────────────────────────────────
-    # For each loss realization, check if the same position was opened within
-    # 30 days before or after the close date (the "30-day window").
-    # If so, disallow the loss and add it to the replacement lot's basis.
+    # ─── Wash-sale pass (ESTIMATE) ────────────────────────────────────────────
+    # A loss is (partly) disallowed if substantially identical property is
+    # ACQUIRED within ±30 days of the sale (the 61-day window) — whether or not
+    # that replacement was itself later closed. The disallowed amount is
+    # pro-rated to the replaced quantity and rolled into a still-open replacement
+    # lot's cost basis, which also inherits the washed holding period.
+    # "Substantially identical" is keyed on ticker|type|strike; options
+    # treatment is fact-specific, so this is an estimate.
 
-    for i, ev in enumerate(realized):
-        if ev["gain_loss"] >= 0:
-            continue  # only losses trigger wash-sale
+    # Every opening is a candidate replacement acquisition (even if later closed).
+    # Each opening is a replacement with a CONSUMABLE remaining quantity, so a
+    # single purchase can wash at most the loss it actually replaces (1:1).
+    acquisitions = []
+    for t in sorted_trades:
+        od = _parse_date(t.get("open_date"))
+        if od:
+            acquisitions.append({"key": _lot_key(t), "open_date": od, "remaining": abs(int(t.get("quantity") or 0))})
 
+    acq_by_key: dict[str, list] = {}
+    for a in acquisitions:
+        acq_by_key.setdefault(a["key"], []).append(a)
+    for k in acq_by_key:
+        acq_by_key[k].sort(key=lambda a: a["open_date"])
+
+    # Index still-open lots by (key, open_date) so a disallowed loss can be
+    # rolled into the replacement's basis.
+    open_by_acq: dict[tuple, list] = {}
+    for k, pool in open_pools.items():
+        for lot in pool:
+            if lot["remaining"] > 0 and lot["open_date"]:
+                open_by_acq.setdefault((k, lot["open_date"]), []).append(lot)
+
+    # Process losses oldest-close first and consume replacement quantity FIFO.
+    loss_events = [ev for ev in realized if ev["gain_loss"] < 0 and _parse_date(ev["close_date"])]
+    loss_events.sort(key=lambda e: _parse_date(e["close_date"]))
+
+    for ev in loss_events:
         close_d_ev = _parse_date(ev["close_date"])
-        if not close_d_ev:
+        loss_qty = int(ev.get("quantity") or 0)
+        if loss_qty <= 0:
             continue
-
+        ev_open = _parse_date(ev["open_date"])
+        ev_key = _lot_key({"ticker": ev["ticker"], "opt_type": ev.get("opt_type"), "strike": ev.get("strike")})
         window_start = close_d_ev - timedelta(days=30)
         window_end = close_d_ev + timedelta(days=30)
 
-        # Check other realizations AND open lots for replacement purchases
-        # A replacement purchase is any OPENING within the wash-sale window
-        replacement_found = False
-        for trade in sorted_trades:
-            if _lot_key(trade) != f"{ev['ticker']}|{(ev.get('opt_type') or 'equity').lower()}|{ev.get('strike', 0)}":
+        # Consume same-key replacement acquisitions in the window (not this lot's
+        # own opening), oldest first, until the loss quantity is covered.
+        need = loss_qty
+        consumed_dates = []
+        for acq in acq_by_key.get(ev_key, []):
+            if acq["remaining"] <= 0 or acq["open_date"] == ev_open:
                 continue
-            open_d2 = _parse_date(trade.get("open_date"))
-            close_d2 = _parse_date(trade.get("close_date"))
-            if not open_d2:
+            if not (window_start <= acq["open_date"] <= window_end):
                 continue
-            if close_d2 is not None:
-                continue  # skip — this is itself a closing
-            if window_start <= open_d2 <= window_end and open_d2 != _parse_date(ev["open_date"]):
-                replacement_found = True
+            take = min(need, acq["remaining"])
+            acq["remaining"] -= take
+            need -= take
+            consumed_dates.append((acq["open_date"], take))
+            if need <= 0:
                 break
+        consumed = loss_qty - need
+        if consumed <= 0:
+            continue
 
-        if replacement_found:
-            disallowed = abs(ev["gain_loss"])
-            ev["wash_sale_disallowed"] = disallowed
-            ev["adjusted_gain_loss"] = 0.0
-            # Update 8949 box to indicate wash-sale adjustment
-            ev["box"] = "B" if ev["term"] == "S" else "E"
+        disallowed = round(abs(ev["gain_loss"]) * (consumed / loss_qty), 2)
+        if disallowed <= 0:
+            continue
+        ev["wash_sale_disallowed"] = disallowed
+        ev["adjusted_gain_loss"] = round(ev["gain_loss"] + disallowed, 2)
+        ev["box"] = "B" if ev["term"] == "S" else "E"
+
+        # Roll the disallowed loss into still-open replacement lots' basis
+        # (pro-rated by consumed qty) and carry the washed holding period.
+        for od, take in consumed_dates:
+            lots = open_by_acq.get((ev_key, od))
+            if lots:
+                add = round(abs(ev["gain_loss"]) * (take / loss_qty), 2)
+                lots[0]["wash_basis_add"] = lots[0].get("wash_basis_add", 0.0) + add
+                if ev_open:
+                    cur = lots[0].get("wash_hold_from")
+                    lots[0]["wash_hold_from"] = ev_open if (cur is None or ev_open < cur) else cur
 
     # ─── Filter to tax year ───────────────────────────────────────────────────
     if tax_year:
@@ -297,13 +343,17 @@ def compute_tax_lots(
     for key, pool in open_pools.items():
         for lot in pool:
             if lot["remaining"] > 0:
+                wash_add = round(lot.get("wash_basis_add", 0.0), 2)
+                base_cb = lot["cost_per_unit"] * lot["remaining"] * lot["multiplier"]
                 open_lots_out.append({
                     "ticker": lot["ticker"],
                     "description": lot["description"],
                     "open_date": str(lot["open_date"]) if lot["open_date"] else "",
                     "quantity": lot["remaining"],
                     "cost_per_unit": lot["cost_per_unit"],
-                    "cost_basis": round(lot["cost_per_unit"] * lot["remaining"] * lot["multiplier"], 2),
+                    "cost_basis": round(base_cb + wash_add, 2),
+                    "wash_basis_added": wash_add,
+                    "wash_hold_from": str(lot["wash_hold_from"]) if lot.get("wash_hold_from") else None,
                 })
 
     return {

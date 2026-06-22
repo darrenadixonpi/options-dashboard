@@ -2,7 +2,7 @@
 
 Living **roadmap and backlog** for this project. For math/architecture, see [TECHNICAL_EXPLAINER.md](TECHNICAL_EXPLAINER.md).
 
-**Current release:** [v1.6.0](CHANGELOG.md) — Greeks Lab spread builder (add hypothetical legs to preview a spread's net greeks) and a deeper portfolio market-shock (per-underlying P&L breakdown + vol response). (Prior: v1.5.0 — whole-book Greeks: per-underlying aggregate, color greek, persisted views, Sim-tab entry; portfolio market-shock parallel + β-weighted.)
+**Current release:** [v1.7.0](CHANGELOG.md) — sortable Performance Cohorts and a corrected wash-sale estimate in Tax Lot Analysis (now actually fires, matches replacements 1:1 with consumption, pro-rates partials, and carries the disallowed loss into the replacement's basis). (Prior: v1.6.0 — Greeks Lab spread builder; deeper portfolio market-shock with P&L breakdown + vol response.)
 
 ---
 

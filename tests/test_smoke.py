@@ -390,7 +390,7 @@ class TestTradeHistoryApi:
         res = client.get("/api/version")
         assert res.status_code == 200
         data = res.get_json()
-        assert data.get("version") == "1.6.0"
+        assert data.get("version") == "1.7.0"
         assert data.get("name") == "options-dashboard"
 
 

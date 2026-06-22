@@ -37,7 +37,7 @@ export function renderTaxLots(data, panel) {
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
       <div class="stat"><div class="stat-label">Short-term gain/loss</div><div class="stat-val" style="color:${gainColor(s.short_term_gain)}">${fmtD(s.short_term_gain)}</div></div>
       <div class="stat"><div class="stat-label">Long-term gain/loss</div><div class="stat-val" style="color:${gainColor(s.long_term_gain)}">${fmtD(s.long_term_gain)}</div></div>
-      <div class="stat"><div class="stat-label">Wash-sale disallowed</div><div class="stat-val" style="color:var(--warn-tx)">$${Math.abs(s.wash_sale_disallowed).toFixed(2)}</div></div>
+      <div class="stat"><div class="stat-label" title="Estimate. Loss disallowed when substantially identical property is acquired within ±30 days; pro-rated to replaced quantity. Options treatment is fact-specific — verify with a tax professional.">Wash-sale disallowed (est.)</div><div class="stat-val" style="color:var(--warn-tx)">$${Math.abs(s.wash_sale_disallowed).toFixed(2)}</div></div>
       <div class="stat"><div class="stat-label">Net realized</div><div class="stat-val" style="color:${gainColor(s.net_gain)};font-weight:600">${fmtD(s.net_gain)}</div></div>
     </div>`;
 
@@ -45,7 +45,7 @@ export function renderTaxLots(data, panel) {
   if (data.realized.length) {
     tableHtml = `<div style="overflow-x:auto;margin-bottom:12px">
       <table class="hist-tbl" style="font-size:11px;width:100%">
-        <tr><th>Box</th><th>Description</th><th>Opened</th><th>Closed</th><th>Proceeds</th><th class="r">Cost Basis</th><th class="r">Gain/(Loss)</th><th class="r">WS Disallowed</th><th class="r">Adjusted</th></tr>
+        <tr><th>Box</th><th>Description</th><th>Opened</th><th>Closed</th><th>Proceeds</th><th class="r">Cost Basis</th><th class="r">Gain/(Loss)</th><th class="r">WS Disallowed (est.)</th><th class="r">Adjusted</th></tr>
         ${data.realized.map(ev => `<tr>
           <td>${ev.box}</td>
           <td style="font-family:var(--mono)">${ev.description}</td>

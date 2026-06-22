@@ -4,6 +4,14 @@ All notable releases of Options Dashboard.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-06-22
+
+### Added
+- **Sortable Performance Cohorts.** Click any column header (group name, Trades, Win%, Total P&L, Avg, PF, Avg Hold) to sort the cohort table; click again to flip direction.
+
+### Fixed
+- **Wash-sale detection now actually fires (estimate).** The replacement scan previously only counted positions that were *never closed*, but the tax-lot engine is fed your closed round-trips — so it matched nothing and "Wash-sale disallowed" always read $0. It now treats every acquisition within ±30 days of a loss as a candidate replacement, **matches replacements to losses 1:1 and consumes them** (oldest sale first, so one purchase can't wash multiple losses), **pro-rates** the disallowed amount to the replaced quantity, and **rolls the disallowed loss into a still-open replacement lot's cost basis** (carrying the washed holding period). Substantially-identical matching keys on ticker|type|strike; options treatment is fact-specific, so the figure is labeled an estimate (UI now reads "Wash-sale disallowed (est.)"). Added wash-sale unit tests.
+
 ## [1.6.0] — 2026-06-21
 
 ### Added
