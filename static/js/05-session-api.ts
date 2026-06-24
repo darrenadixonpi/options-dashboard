@@ -463,6 +463,7 @@ export function saveSession() {
     tradeHistory: state.tradeHistory,
     optionMarks: state.optionMarks,
     format: state.format,
+    accountValue: (state as any).accountValue || null,
     fillsCount: state.fills?.length || 0,
     simDone: state.simDone,
     simResult: simForSave,
@@ -510,6 +511,7 @@ export function restoreSession() {
     state.tradeHistory = data.tradeHistory || null;
     state.optionMarks = data.optionMarks || null;
     state.format = data.format || "";
+    (state as any).accountValue = data.accountValue || null;
     state.simDone = !!data.simDone;
     state.simResult = data.simResult || null;
     state.simMeta = data.simMeta || null;

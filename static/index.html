@@ -10,7 +10,7 @@
 <body>
 
 <div class="top-bar">
-  <span class="top-title">Options Dashboard <span class="top-version" title="Release v1.2.0">v1.2</span></span>
+  <span class="top-title">Options Dashboard <span class="top-version" title="Release v1.8.0">v1.8</span></span>
   <div class="tabs" role="tablist">
     <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="positions">Positions</button>
     <button class="tab" type="button" role="tab" aria-selected="false" data-tab="risk">Risk</button>
@@ -542,6 +542,21 @@
             <div id="vega-ladder"></div>
           </div>
         </div>
+      </div>
+      <!-- Underlying / assignment exposure as % of port -->
+      <div class="outer" style="padding:20px;margin-top:20px" id="underlying-exposure-section" hidden>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:500;font-size:14px">Underlying exposure (% of port)</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:10px;color:var(--tx3)" id="underlying-exposure-meta"></span>
+            <span style="display:flex;gap:4px">
+              <button class="btn btn-sm expo-grp" data-grp="ticker" type="button">Ticker</button>
+              <button class="btn btn-sm btn-ghost expo-grp" data-grp="sector" type="button">Sector</button>
+            </span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:10px">Notional capital per name: shares × price + short-put assignment liability (strike − premium) × 100 × n. Covered calls add nothing; long options count premium at risk. Port value parsed from your positions export.</div>
+        <div id="underlying-exposure-body"></div>
       </div>
       <!-- Tier-2: Expiration / pin-risk calendar -->
       <div class="outer" style="padding:20px;margin-top:20px" id="expiry-calendar-section" hidden>

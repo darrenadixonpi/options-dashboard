@@ -257,7 +257,10 @@ def _parse_occ_symbol(sym):
     Supports both standard OCC padded strikes (00002500 → 2.5) and
     broker CSV decimal strikes (2.5 → 2.5).
     """
-    m = re.match(r"-?([a-z]+)(\d{6})([cp])(\d+(?:\.\d+)?)", sym.lower().replace(" ", ""))
+    # Root is letters plus an optional trailing digit, to support ADJUSTED option
+    # symbols (corporate-action deliverables) like "-OPEN1260515P5" → root "OPEN1".
+    # The \d? backtracks for normal symbols ("-mstr250502c400" still → "MSTR").
+    m = re.match(r"-?([a-z]+\d?)(\d{6})([cp])(\d+(?:\.\d+)?)", sym.lower().replace(" ", ""))
     if not m:
         return None
     ds = m.group(2)
@@ -1850,12 +1853,15 @@ def _parse_fidelity_schwab_raw_txns(lines):
             col_map["qty"] = ci
         elif cl in ("price", "price ($)"):
             col_map["price"] = ci
+        elif cl in ("description", "desc"):
+            col_map["description"] = ci
 
     date_idx = col_map.get("date", 0)
     action_idx = col_map.get("action", 1)
     sym_idx = col_map.get("symbol", 2)
     qty_idx = col_map.get("qty", 5)
     price_idx = col_map.get("price", 6)
+    desc_idx = col_map.get("description", 3)
 
     trades = {}
     equity_txns = {}
@@ -1885,28 +1891,44 @@ def _parse_fidelity_schwab_raw_txns(lines):
         if not dt:
             continue
 
+        desc = r[desc_idx].strip().strip('"') if 0 <= desc_idx < len(r) else ""
+        is_occ = _parse_occ_symbol(sym) is not None
+        desc_is_option = bool(re.match(r"\s*(PUT|CALL)\b", desc, re.I))
         eq_ticker = _plain_equity_ticker(sym_raw)
-        if eq_ticker and "OPENING TRANSACTION" not in action and "CLOSING TRANSACTION" not in action:
-            side = None
-            if "SOLD SHORT" in action or ("SOLD" in action and "SHORT SALE" in action):
-                side = "short_open"
-            elif "BOUGHT SHORT COVER" in action or ("BOUGHT" in action and "SHORT COVER" in action):
-                side = "short_close"
-            elif "BOUGHT" in action and "SHORT" not in action:
-                side = "long_open"
-            elif "SOLD" in action and "SHORT" not in action:
-                side = "long_close"
+
+        # 1) Plain-ticker equity trade.
+        if eq_ticker and not is_occ and "OPENING TRANSACTION" not in action and "CLOSING TRANSACTION" not in action:
+            side = _equity_trade_side(action)
             if side:
                 equity_txns.setdefault(eq_ticker, []).append({
                     "date": dt, "side": side, "qty": qty, "price": price,
                 })
             continue
 
+        # 2) CUSIP-coded equity (broker reported a CUSIP, not a ticker — e.g. inverse/
+        #    leveraged ETFs, post-split shares). Only genuine buy/sell/short rows pass
+        #    the side test; cash, interest, collateral, fees, splits, transfers do not,
+        #    so they are dropped instead of being mislabeled as their own "underlying".
+        if not eq_ticker and not is_occ and not desc_is_option and _is_cusip(sym_raw):
+            side = _equity_trade_side(action)
+            if side:
+                equity_txns.setdefault(sym_raw.upper(), []).append({
+                    "date": dt, "side": side, "qty": qty, "price": price,
+                    "name": _friendly_security_name(desc),
+                })
+            continue
+
+        # 3) Options: a real OCC symbol, or a CUSIP-coded option Fidelity describes as
+        #    PUT/CALL, or any row whose action is itself an option open/close.
+        if not (is_occ or desc_is_option or _classify_option_event(action)):
+            continue  # 4) everything else (cash / interest / collateral / fees) — not a trade
+
         trades.setdefault(sym, []).append({
             "date": dt,
             "action": action,
             "qty": qty,
             "price": price,
+            "underlying": _option_underlying_from_desc(desc),
         })
 
     return trades, equity_txns, []
@@ -1951,6 +1973,55 @@ def _merge_history_texts(texts):
         warnings.extend(warns or [])
     hist_fmt = "+".join(dict.fromkeys(fmts)) if fmts else "unknown"
     return merged_trades, merged_equity, hist_fmt, warnings
+
+
+def _is_cusip(sym):
+    """True if a symbol looks like a 9-char CUSIP. Brokers report a CUSIP instead of a
+    ticker for some securities (delisted names, leveraged/inverse ETFs, post-split
+    shares), which otherwise get dropped or mislabeled."""
+    s = (sym or "").strip().upper()
+    return bool(re.fullmatch(r"[0-9A-Z]{9}", s)) and any(c.isdigit() for c in s)
+
+
+_SECURITY_NAME_BOILERPLATE = (
+    "ETF OPPORTUNITIES TR", "TIDAL TRUST II", "TIDAL TR II", "PROSHARES TRUST",
+    "PROSHARES TR", "INVESTMENT MANAGERS SER TR II", "DIREXION SHARES ETF TRUST",
+    "INC COM", "COMMON STOCK", "CLASS A", "COM NPV", "TRUST",
+)
+
+
+def _friendly_security_name(desc):
+    """Best-effort readable label from a broker security description for CUSIP rows,
+    e.g. 'ETF OPPORTUNITIES TR T-REX 2X INVERSE TSLA' -> 'T-REX 2X INVERSE TSLA'."""
+    s = re.sub(r"\s+", " ", (desc or "").strip().upper())
+    # Drop corporate-action / reorg tails so the same security collapses to one label.
+    s = re.split(r"\b\d+\s+FOR\s+\d+\b|R/S|REVERSE SPLIT|CASH MERGER|REORGANIZATION|EXCHANGED FOR", s)[0].strip()
+    for b in _SECURITY_NAME_BOILERPLATE:
+        s = s.replace(b, " ")
+    s = re.sub(r"\s+", " ", s).strip(" -")
+    return s[:22] or None
+
+
+def _option_underlying_from_desc(desc):
+    """Pull the underlying ticker from a Fidelity option description, e.g.
+    'PUT (OPEN) OPENDOOR JAN 15 27 $5' -> 'OPEN' (for CUSIP-coded option rows)."""
+    m = re.match(r"\s*(?:PUT|CALL)\s*\(([A-Z0-9]{1,6})\)", (desc or "").upper())
+    return m.group(1) if m else None
+
+
+def _equity_trade_side(action):
+    """Classify a plain equity history action into a long/short open/close, or None
+    for non-trades (cash, interest, collateral, fees, splits, transfers)."""
+    a = action.upper()
+    if "SOLD SHORT" in a or ("SOLD" in a and "SHORT SALE" in a):
+        return "short_open"
+    if "BOUGHT SHORT COVER" in a or ("BOUGHT" in a and "SHORT COVER" in a):
+        return "short_close"
+    if "BOUGHT" in a and "SHORT" not in a:
+        return "long_open"
+    if "SOLD" in a and "SHORT" not in a:
+        return "long_close"
+    return None
 
 
 def _plain_equity_ticker(sym):
@@ -2781,6 +2852,7 @@ def _compute_drawdown_metrics(daily_pnl_series):
     peak_date = chrono[0]["date"]
     max_dd = 0.0
     max_dd_pct = None
+    trough_cum = None
     trough_date = None
     dd_peak_date = None
     underwater = []
@@ -2805,7 +2877,11 @@ def _compute_drawdown_metrics(daily_pnl_series):
             max_dd = dd
             trough_date = row["date"]
             dd_peak_date = peak_date
-            max_dd_pct = (dd / peak * 100) if peak > 1e-9 else None
+            trough_cum = cum
+            # % of peak is meaningful only while the curve stays in profit. Once the
+            # trough drops below zero (all prior gains given back), the drawdown
+            # exceeds 100% of the small prior peak and the percent misleads — omit it.
+            max_dd_pct = (dd / peak * 100) if (peak > 1e-9 and cum >= 0) else None
         underwater.append({
             "date": row["date"],
             "drawdown": round(dd, 2),
@@ -2843,12 +2919,13 @@ def _compute_drawdown_metrics(daily_pnl_series):
 
     final_cum = float(chrono[-1]["cumPnl"])
     cur_dd = round(final_cum - peak, 2)
-    cur_dd_pct = round((final_cum - peak) / peak * 100, 1) if peak > 1e-9 else None
+    cur_dd_pct = round((final_cum - peak) / peak * 100, 1) if (peak > 1e-9 and final_cum >= 0) else None
     recovery_factor = round(final_cum / abs(max_dd), 2) if max_dd < -1e-9 else None
 
     return {
         "maxDrawdown": round(max_dd, 2),
         "maxDrawdownPct": round(max_dd_pct, 1) if max_dd_pct is not None else None,
+        "maxDrawdownBelowZero": bool(trough_cum is not None and trough_cum < 0),
         "peakDate": dd_peak_date,
         "troughDate": trough_date,
         "recoveryDate": recovery_date,
@@ -3148,12 +3225,24 @@ def _option_occ_meta(sym):
 def _fifo_closed_option_trades(sym, txns):
     """FIFO lot matching per OCC symbol — one closed-trade row per matched lot."""
     meta = _option_occ_meta(sym)
+    # CUSIP-coded options don't parse to a ticker; recover the underlying from the
+    # broker description (e.g. "PUT (OPEN) OPENDOOR …") so they group under "OPEN"
+    # instead of the raw CUSIP.
+    if not _parse_occ_symbol(sym):
+        und = next((t.get("underlying") for t in txns if t.get("underlying")), None)
+        if und:
+            meta = {**meta, "ticker": und}
     events = []
-    for txn in sorted(txns, key=lambda x: (x["date"], x["action"])):
+    for txn in txns:
         kind = _classify_option_event(txn["action"])
         if not kind:
             continue
         events.append({**txn, **kind})
+    # Sort by date, then OPENS BEFORE CLOSES on the same date. Broker history has no
+    # intraday timestamps and is often newest-first, so a same-day close can otherwise
+    # be processed before the open it belongs to — orphaning intraday round-trips and
+    # zeroing their P&L. Opens-first guarantees a lot exists before a close consumes it.
+    events.sort(key=lambda e: (e["date"], 0 if e["event"] == "open" else 1))
 
     lots = []
     closed = []
@@ -3415,6 +3504,9 @@ def _build_equity_closed_trades(ticker, txns):
     results = []
     long_lots = []
     short_lots = []
+    # CUSIP-keyed securities carry a friendly display name; matching still uses the
+    # stable CUSIP key, but the emitted rows show the readable label.
+    display = next((t["name"] for t in txns if t.get("name")), None) or ticker
 
     def emit_close(is_short, lot, close_date, close_price, qty, close_type):
         hold_days = (pd.Timestamp(close_date) - pd.Timestamp(lot["date"])).days
@@ -3423,8 +3515,8 @@ def _build_equity_closed_trades(ticker, txns):
         else:
             pnl = (close_price - lot["price"]) * qty
         results.append({
-            "symbol": ticker.lower(),
-            "ticker": ticker,
+            "symbol": display.lower(),
+            "ticker": display,
             "instrument": "equity",
             "optType": "Stock",
             "strike": None,
@@ -3444,7 +3536,10 @@ def _build_equity_closed_trades(ticker, txns):
             "orphanClose": False,
         })
 
-    for txn in sorted(txns, key=lambda x: x["date"]):
+    # Date order, OPENS BEFORE CLOSES on the same date (see _fifo_closed_option_trades):
+    # without this, a same-day cover/sell can be processed before the short/buy it pairs
+    # with, dropping the match and turning round-tripped positions into phantom P&L.
+    for txn in sorted(txns, key=lambda x: (x["date"], 0 if x["side"].endswith("_open") else 1)):
         side = txn["side"]
         if side == "long_open":
             long_lots.append({"date": txn["date"], "qty": txn["qty"], "price": txn["price"]})

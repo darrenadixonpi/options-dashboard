@@ -99,13 +99,16 @@ export function enableRiskTab() {
   // Risk summary
   if (state.greeks?.risk) {
     const r: any = state.greeks.risk;
-    document.getElementById("risk-summary").innerHTML = `
+    const _av: any = (state as any).accountValue;
+    const _avStat = _av && (_av.total != null || _av.cash != null) ? `<div class="stat" style="border-left:3px solid var(--accent)"><div class="stat-label">Account value</div><div class="stat-val" style="font-size:18px;color:var(--accent)">$${Math.round(_av.total != null ? _av.total : _av.cash).toLocaleString()}</div>${_av.asOf ? `<div style="font-size:9px;color:var(--tx3);margin-top:2px">as of ${_av.asOf}</div>` : ""}</div>` : "";
+    document.getElementById("risk-summary").innerHTML = `${_avStat}
       <div class="stat" style="border-left:3px solid var(--err-tx)"><div class="stat-label">Total Max Loss</div><div class="stat-val" style="font-size:18px;color:var(--err-tx)">$${r.totalMaxLoss.toLocaleString()}</div></div>
       <div class="stat" style="border-left:3px solid var(--warn-tx)"><div class="stat-label" title="Reg-T margin estimate: Short puts use min(naked formula, cash-secured). Covered calls need no extra margin. See hover for details.">Est. Margin</div><div class="stat-val" style="font-size:18px;color:var(--warn-tx)">$${r.totalMargin.toLocaleString()}</div><div style="font-size:9px;color:var(--tx3);margin-top:2px">Reg-T estimate</div></div>`;
   }
 
   loadRiskExposure();
   renderPortfolioShock();
+  renderUnderlyingExposure();
 }
 
 // ── Portfolio market-shock (whole-book reprice vs a market move) ───────────
@@ -248,6 +251,99 @@ export function renderPortfolioShock() {
   }
   _drawShock();
 }
+
+// Per-ticker notional/assignment exposure as a % of account value (parsed from
+// the positions export). shares×spot + short-put (strike−premium)×100×n; covered
+// calls add nothing; long options count premium at risk.
+let _expoGroupBy: "ticker" | "sector" = "ticker";
+export function renderUnderlyingExposure() {
+  const sec = document.getElementById("underlying-exposure-section") as HTMLElement | null;
+  if (!sec) return;
+  const positions = (state.positions as any[]) || [];
+  const md: any = state.marketData;
+  if (!positions.length || !md) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const acct: any = (state as any).accountValue || null;
+  const port: number | null = acct ? (acct.total != null ? acct.total : acct.cash) : null;
+  const sectorMap: Record<string, string> = (state as any).sectorMap || {};
+  const haveSectors = Object.keys(sectorMap).length > 0;
+  const groupBy = (_expoGroupBy === "sector" && haveSectors) ? "sector" : "ticker";
+
+  const sharesByTkr: Record<string, number> = {};
+  for (const p of positions) {
+    if (p.posType === "equity") sharesByTkr[p.ticker] = (sharesByTkr[p.ticker] || 0) + (p.shares || p.contracts || 0);
+  }
+
+  const byTkr: Record<string, number> = {};
+  for (const p of positions) {
+    const spot = ((md[p.ticker] || {}).price) || 0;
+    let exp = 0;
+    if (p.posType === "equity") {
+      exp = (p.shares || p.contracts || 0) * spot;
+    } else {
+      const isPut = /p/i.test(p.optType || "");
+      const isCall = /c/i.test(p.optType || "");
+      const n = Math.abs(p.contracts || 0);
+      const prem = p.avgCost || 0;
+      const K = p.strike || 0;
+      if ((p.contracts || 0) < 0) {
+        if (isPut) exp = n * 100 * Math.max(0, K - prem);
+        else if (isCall) {
+          const covered = (sharesByTkr[p.ticker] || 0) >= n * 100;
+          exp = covered ? 0 : n * 100 * K;
+        }
+      } else {
+        exp = n * 100 * prem; // long option: premium at risk
+      }
+    }
+    byTkr[p.ticker] = (byTkr[p.ticker] || 0) + exp;
+  }
+
+  let grouped: Record<string, number> = byTkr;
+  if (groupBy === "sector") {
+    grouped = {};
+    for (const [t, v] of Object.entries(byTkr)) {
+      const sName = sectorMap[t] || "Unknown";
+      grouped[sName] = (grouped[sName] || 0) + v;
+    }
+  }
+  const rows = Object.entries(grouped).filter(([, v]) => Math.abs(v) > 0.005).sort((a, b) => b[1] - a[1]);
+  const totalExp = rows.reduce((s, [, v]) => s + v, 0);
+  const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r[1])));
+  const pct = (v: number) => (port ? v / port * 100 : null);
+
+  sec.querySelectorAll(".expo-grp").forEach(b => {
+    const g = (b as HTMLElement).dataset.grp;
+    b.classList.toggle("btn-ghost", g !== groupBy);
+    if (g === "sector") { (b as HTMLButtonElement).disabled = !haveSectors; (b as HTMLElement).title = haveSectors ? "" : "Sector data loads with the rest of the Risk tab"; }
+  });
+  const meta = document.getElementById("underlying-exposure-meta");
+  if (meta) meta.textContent = "";
+
+  const body = document.getElementById("underlying-exposure-body");
+  if (body) {
+    const colHdr = groupBy === "sector" ? "Sector" : "Ticker";
+    let html = `<div style="font-size:13px;color:var(--tx);margin-bottom:10px">Account value <b style="font-size:17px;color:var(--accent)">${port != null ? "$" + Math.round(port).toLocaleString() : "—"}</b>${acct?.asOf ? ` <span style="color:var(--tx3);font-size:10px">· as of ${acct.asOf}</span>` : ""}</div>`;
+    html += `<table class="hist-tbl"><thead><tr><th>${colHdr}</th><th class="r">Exposure</th><th class="r">% of port</th><th></th></tr></thead><tbody>`;
+    for (const [t, v] of rows) {
+      const p = pct(v);
+      const w = Math.round(Math.abs(v) / maxAbs * 100);
+      const c = v >= 0 ? "var(--ok-tx)" : "var(--err-tx)";
+      html += `<tr><td>${esc(t)}</td><td class="r">${fmtDollar(v)}</td><td class="r" style="font-weight:500">${p == null ? "—" : p.toFixed(1) + "%"}</td><td style="width:120px"><span style="display:block;background:var(--bg2);border-radius:3px;height:10px"><span style="display:block;height:10px;width:${w}%;background:${c};opacity:.5;border-radius:3px"></span></span></td></tr>`;
+    }
+    html += `<tr style="border-top:1px solid var(--bd);font-weight:600"><td>Total</td><td class="r">${fmtDollar(totalExp)}</td><td class="r">${port ? (totalExp / port * 100).toFixed(1) + "%" : "—"}</td><td></td></tr>`;
+    html += "</tbody></table>";
+    if (!port) html += `<div style="font-size:10px;color:var(--warn-tx);margin-top:6px">% of port needs your account value — load a Schwab positions export (it carries the Positions Total) and this fills in automatically.</div>`;
+    body.innerHTML = html;
+  }
+}
+
+document.getElementById("underlying-exposure-section")?.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest(".expo-grp") as HTMLElement | null;
+  if (!b || (b as HTMLButtonElement).disabled) return;
+  _expoGroupBy = ((b.dataset.grp as any) === "sector") ? "sector" : "ticker";
+  renderUnderlyingExposure();
+});
 
 export async function loadRiskMatrix() {
   if (!state.marketData || !state.positions.length) return;
@@ -592,6 +688,10 @@ export function renderSectorRollup(s: any) {
   }
   html += "</div>";
   body.innerHTML = html;
+  const _sm: Record<string, string> = {};
+  for (const row of s.sectors) for (const t of (row.tickers || [])) _sm[t] = row.sector;
+  (state as any).sectorMap = _sm;
+  renderUnderlyingExposure();
 }
 
 export function renderBenchmark(b: any) {

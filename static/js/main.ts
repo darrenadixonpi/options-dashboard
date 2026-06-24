@@ -19,6 +19,18 @@ export function applyTickerFilter(query) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Keep the header version badge in sync with the VERSION file (served at
+  // /api/version) so it can't go stale like the old hard-coded "v1.2".
+  const verEl = document.querySelector(".top-version") as HTMLElement | null;
+  if (verEl) {
+    fetch("/api/version").then(r => r.json()).then(d => {
+      if (d && d.version) {
+        verEl.textContent = "v" + d.version;
+        verEl.title = "Release v" + d.version;
+      }
+    }).catch(() => {});
+  }
+
   const filterInput = document.getElementById("pos-ticker-filter") as HTMLInputElement | null;
   if (filterInput) {
     filterInput.addEventListener("input", () => applyTickerFilter(filterInput.value));

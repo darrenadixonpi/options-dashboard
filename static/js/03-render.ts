@@ -151,7 +151,10 @@ export function renderPortfolio(portfolio, hasMarket) {
         "Portfolio-only: showing avg cost from positions export. Per-fill dates, adjusted basis, true breakevens, and equity P&L vs premium require History CSV.";
     }
   }
+  const _av: any = (state as any).accountValue;
+  const _avStat = _av && (_av.total != null || _av.cash != null) ? `<div class="stat"><div class="stat-label">Account value</div><div class="stat-val" style="color:var(--accent)">$${Math.round(_av.total != null ? _av.total : _av.cash).toLocaleString()}</div></div>` : "";
   document.getElementById("summary").innerHTML = `
+    ${_avStat}
     <div class="stat"><div class="stat-label">Positions</div><div class="stat-val">${portfolio.totalPositions}</div></div>
     <div class="stat"><div class="stat-label">Strategies</div><div class="stat-val">${portfolio.uniqueStrategies}</div></div>
     <div class="stat"><div class="stat-label">Expiries</div><div class="stat-val">${portfolio.totalExpiries}</div></div>

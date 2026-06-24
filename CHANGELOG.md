@@ -2,7 +2,22 @@
 
 All notable releases of Options Dashboard.
 
-## [Unreleased]
+## [1.8.0] — 2026-06-24
+
+### Added
+- **Underlying exposure (% of portfolio) per ticker (Risk tab).** A new card shows each name's notional / assignment exposure — `shares×price` + short-put `(strike−premium)×100×n` (covered calls add nothing; long options count premium at risk) — as a % of account value, with a portfolio total. The account value is read **straight from the positions export** (the "Positions Total" / "Cash & Cash Investments" rows the parser used to discard), so no manual entry; if a load lacks it, the card prompts and still shows dollar exposures. Includes a **Ticker ⇄ Sector toggle** (same notional metric, regrouped via the sector map).
+
+### Changed
+- **Readability pass.** Lifted the faint secondary/tertiary text colors (`--tx2` / `--tx3`) in both light and dark themes so dark-grey labels, hints, and table headers are actually legible.
+- **Account value surfaced in obvious places.** The parsed account value now appears as a stat on the dashboard summary and the Risk summary, and prominently atop the Underlying-exposure card (was tiny grey).
+- **Table headers:** right-aligned numeric column headers now line up with their data (`.hist-tbl th.r`), fixing the Exposure / % of port misalignment.
+- **History parse warnings collapsed.** The Journal's parse-warning list now shows the first 6 with a count and a **Show all / Show less** toggle (scrollable when expanded), so long "close with no matching open" lists no longer dominate the tab.
+
+### Fixed
+- **Header version badge now reflects the real version.** The top-bar badge was hard-coded to "v1.2" and never updated; it now fetches `/api/version` (the `VERSION` file) on load, so it always shows the running release.
+- **Drawdown "% vs peak" no longer shows misleading >100% figures.** The drawdown card divides the dollar drawdown by the prior positive peak, but the realized-P&L curve has no capital base and crosses zero — so once the trough drops below $0 (all prior profit given back), the percent balloons past 100% (e.g. a −$16,679 max drawdown read "−225.2% vs peak"). The dollar figure was always correct; the percent is now **only shown while the curve stays in profit**, and reads "gave back all profit (equity went negative)" otherwise. (Backend + frontend.)
+- **Securities reported by CUSIP are no longer dropped or shown as junk (recovers missing history).** Brokers report a CUSIP instead of a ticker for some holdings — leveraged/inverse ETFs, post-split shares, adjusted options. These failed both the ticker and OCC-symbol parsers, so plain-equity CUSIP trades (e.g. the T-REX 2X Inverse TSLA ETF) were routed to the option matcher, which couldn't classify "YOU BOUGHT/SOLD" and **silently dropped their entire P&L**, while option rows coded by CUSIP showed up as their own garbage "underlying" in cohorts. The history parser now: (a) routes CUSIP-coded equities to the equity FIFO matcher with a **readable name derived from the description** (cash/interest/collateral/fees/splits are excluded by the trade-action test, so no phantom P&L); (b) recovers a CUSIP-coded option's underlying from its description (e.g. "PUT (OPEN) OPENDOOR …" → groups under **OPEN**); and (c) parses **adjusted** option roots (`-OPEN1260515P5` → OPEN1). Effect on real history: the inverse-TSLA ETF's **−$7.3k 2024 loss reappears** (it reconciles to its net cash flow), the **2024 cumulative P&L now correctly draws down to ≈ −$9.3k** instead of sitting near zero, and the junk `26923N827` / `-OPEN…` / `8014949WS` rows resolve to real names. Backend-only — restart the server.
+- **Intraday round-trips no longer produce phantom realized P&L (FIFO matching).** Both the equity and option FIFO matchers sorted same-date events by date alone (options by date+action, which alphabetizes "BOUGHT CLOSING" *before* "BOUGHT OPENING"). Broker history has no intraday timestamps and is exported newest-first, so a same-day close could be processed before the open it belongs to — the close found no lot, got dropped (equity) or zeroed as an orphan (options), and the offsetting leg was left unmatched. For day-traded names this turned round-tripped positions into large fictional losses or gains. Both matchers now sort **opens before closes within the same date**, so a lot always exists before a close consumes it. Example from real history: MSTR (heavily day-traded short stock + options) corrected from **−$25,382 to +$3,967**, reconciling to its actual net cash flow; whole-journal realized P&L was understated by ~$13k. 17 equity tickers and ~12 option tickers were affected. Backend-only — restart the server (no rebuild needed).
 
 ## [1.7.0] — 2026-06-22
 

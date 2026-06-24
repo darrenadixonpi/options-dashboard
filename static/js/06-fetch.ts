@@ -43,6 +43,7 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
     const parsed = parsePositions(state.posText);
     const {positions: rawPositions, format} = parsed;
     state.format = format as string;
+    (state as any).accountValue = (parsed as any).accountValue || null;
     // Parse each history file by its OWN broker format (don't use the merged blob —
     // a single detectHistoryFormat would pick one format and drop the other broker's rows).
     state.fills = (state.rawHistTexts || []).flatMap(t => parseHistory(t));
@@ -58,7 +59,7 @@ document.getElementById("btn-fetch").addEventListener("click", async function() 
 
     if (!positions.length) {
       const broker = (document.querySelector(".broker-btn.active") as HTMLElement | null)?.dataset.broker;
-      const hint = parsed.hint || formatParseHint(format, broker);
+      const hint = (parsed as any).hint || formatParseHint(format, broker);
       log.textContent = `No positions found (detected: ${format}). ${hint}`;
       document.getElementById("error-box").hidden = false;
       document.getElementById("error-box").textContent = hint;

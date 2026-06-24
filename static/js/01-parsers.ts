@@ -238,6 +238,34 @@ export function parseSchwabPositions(text) {
   return pos;
 }
 
+// Pull the account value straight from a Schwab positions export: the
+// "Cash & Cash Investments" and "Positions Total" rows (which parseSchwabPositions
+// skips). Returns null for non-Schwab CSVs so callers can fall back.
+export function parseSchwabAccountValue(text) {
+  const lines = text.replace(/^﻿/, "").replace(/\r/g, "").split("\n");
+  const hdrIdx = findCsvHeaderRow(lines, ["symbol", "quantity"]);
+  if (hdrIdx < 0) return null;
+  const headers = parseCSVLine(lines[hdrIdx]).map(h => h.trim().toLowerCase().replace(/"/g, ""));
+  const symIdx = headerColIndex(headers, "symbol");
+  const mvIdx = headerColIndex(headers, "market value");
+  if (mvIdx < 0 || symIdx < 0) return null;
+  let cash: number | null = null, total: number | null = null;
+  for (let i = hdrIdx + 1; i < lines.length; i++) {
+    const r = parseCSVLine(lines[i]);
+    if (r.length <= Math.max(symIdx, mvIdx)) continue;
+    const sym = (r[symIdx] || "").trim().toLowerCase();
+    if (!sym) continue;
+    const mv = parseMoney(r[mvIdx]);
+    if (sym.includes("cash") && sym.includes("invest")) cash = mv;
+    else if (sym.includes("positions total") || sym === "total" || sym.endsWith(" total")) total = mv;
+  }
+  if (cash == null && total == null) return null;
+  let asOf: string | null = null;
+  const m0 = (lines[0] || "").match(/as of[^,]*,?\s*(\d{4}\/\d{2}\/\d{2})/i);
+  if (m0) asOf = m0[1];
+  return { cash, total, asOf, source: "schwab_positions" };
+}
+
 export function parseIBKRPositions(text) {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r/g, "").split("\n");
   const hdrIdx = findCsvHeaderRow(lines, ["symbol", "quantity"]);
@@ -377,11 +405,13 @@ export function parseHistory(text) {
 }
 
 export function parsePositions(text) {
+  const acct = parseSchwabAccountValue(text); // null unless it's a Schwab positions export
+  const wrap = (positions, format, extra = {}) => ({ positions, format, accountValue: acct, ...extra });
   const fmt = detectFormat(text);
-  if (fmt === "fidelity_raw") return { positions: parseFidelityRaw(text), format: "fidelity_raw" };
-  if (fmt === "preprocessed") return { positions: parsePreprocessed(text), format: "preprocessed" };
-  if (fmt === "schwab_positions") return { positions: parseSchwabPositions(text), format: "schwab_positions" };
-  if (fmt === "ibkr_positions") return { positions: parseIBKRPositions(text), format: "ibkr_positions" };
+  if (fmt === "fidelity_raw") return wrap(parseFidelityRaw(text), "fidelity_raw");
+  if (fmt === "preprocessed") return wrap(parsePreprocessed(text), "preprocessed");
+  if (fmt === "schwab_positions") return wrap(parseSchwabPositions(text), "schwab_positions");
+  if (fmt === "ibkr_positions") return wrap(parseIBKRPositions(text), "ibkr_positions");
   const attempts = [
     ["fidelity_raw", parseFidelityRaw(text)],
     ["schwab_positions", parseSchwabPositions(text)],
@@ -389,9 +419,9 @@ export function parsePositions(text) {
     ["preprocessed", parsePreprocessed(text)],
   ];
   for (const [name, positions] of attempts) {
-    if (positions.length) return { positions, format: name };
+    if (positions.length) return wrap(positions, name);
   }
-  return { positions: [], format: fmt, hint: formatParseHint(fmt) };
+  return wrap([], fmt, { hint: formatParseHint(fmt) });
 }
 
 export function formatParseHint(format, broker?) {

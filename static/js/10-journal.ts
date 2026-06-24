@@ -129,13 +129,7 @@ export function renderTradeHistory(data) {
       const openTxt = s.openLotsRemaining ? ` · ${s.openLotsRemaining} open lots not in closed set (still held or outside CSV window)` : "";
       note.textContent = `${viewStats.optionTrades ?? s.optionTrades ?? 0} option closes · ${viewStats.equityTrades ?? s.equityTrades ?? 0} share round-trips · win rate groups spreads · click chart to drill down${rollTxt}${assignTxt}${flagTxt}${openTxt}`;
     }
-    const warnEl = document.getElementById("history-data-warnings");
-    if (warnEl && s.dataWarnings) {
-      if (s.dataWarnings?.length) {
-        warnEl.hidden = false;
-        warnEl.innerHTML = `<strong>History parse warnings</strong> — closes with no matching open in your CSV (extend date range or check export)<br>${s.dataWarnings.map(w => esc(w)).join("<br>")}`;
-      } else warnEl.hidden = true;
-    }
+    _renderHistWarnings(s.dataWarnings || []);
   }
 
   const dateChip = document.getElementById("hist-date-filter-chip");
@@ -310,7 +304,9 @@ export function renderDrawdownPanel(dd: any) {
     return;
   }
   section.hidden = false;
-  const pct = dd.maxDrawdownPct != null ? `${dd.maxDrawdownPct}% vs peak` : "vs peak n/a";
+  const pct = dd.maxDrawdownPct != null
+    ? `${dd.maxDrawdownPct}% vs peak`
+    : (dd.maxDrawdownBelowZero ? "gave back all profit (equity went negative)" : "vs peak n/a");
   const recov = dd.stillUnderwater
     ? `<span style="color:var(--warn-tx)">underwater</span>`
     : (dd.daysToRecover != null ? `${dd.daysToRecover}d` : "—");
@@ -359,6 +355,24 @@ export function renderDrawdownPanel(dd: any) {
 }
 
 // ─── Performance cohorts ─────────────────────────────────────────────────────
+
+// History parse warnings: collapsed to the first few with a Show all / Show less
+// toggle, since "close with no matching open" lists can run very long.
+let _warnExpanded = false;
+function _renderHistWarnings(warns: string[]) {
+  const warnEl = document.getElementById("history-data-warnings");
+  if (!warnEl) return;
+  if (!warns || !warns.length) { warnEl.hidden = true; return; }
+  warnEl.hidden = false;
+  const N = 6;
+  const shown = _warnExpanded ? warns : warns.slice(0, N);
+  const more = warns.length - shown.length;
+  let html = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><span><strong>History parse warnings (${warns.length})</strong> — closes with no matching open in your CSV (extend date range or check export)</span>`;
+  if (warns.length > N) html += `<button class="btn btn-sm btn-ghost" id="hist-warn-toggle" type="button" style="flex-shrink:0">${_warnExpanded ? "Show less" : "Show all"}</button>`;
+  html += `</div><div style="margin-top:6px${_warnExpanded ? ";max-height:200px;overflow-y:auto" : ""}">${shown.map(w => esc(w)).join("<br>")}${more > 0 ? `<br><span style="color:var(--tx3)">…and ${more} more</span>` : ""}</div>`;
+  warnEl.innerHTML = html;
+  document.getElementById("hist-warn-toggle")?.addEventListener("click", () => { _warnExpanded = !_warnExpanded; _renderHistWarnings(warns); });
+}
 
 let cohortDim = "byUnderlying";
 let cohortSort: { col: string; dir: "asc" | "desc" } = { col: "totalPnl", dir: "desc" };
